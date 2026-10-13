@@ -48,7 +48,7 @@ function ExploreContent({ game }: { game: ReturnType<typeof useGame> }) {
           {supplied ? '✓ 今日補給已領取' : `🎒 領取每日補給（捕捉球 ×${config.dailySupplyBalls}）`}
         </button>
       </div>
-      <Alert kind="info">遊戲道具只能透過任務與每日補給取得，<strong>不能用真實金錢購買</strong>。每位球員每天的探索次數與補給都相同。</Alert>
+      <Alert kind="info">捕捉球只能透過任務與每日補給取得，所有遊戲道具都<strong>不能用真實金錢購買</strong>。每位球員每天的探索次數與補給都相同。</Alert>
       {!hasMonsters && (
         <Alert kind="warn">
           你還沒有夥伴，建議先到 <Link to="/training">怪獸訓練中心</Link> 選擇初始夥伴。

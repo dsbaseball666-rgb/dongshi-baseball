@@ -8,10 +8,14 @@ interface Props {
   format: (v: number) => string;
   better: 'higher' | 'lower';
   label: string;
+  /** X 軸文字；預設顯示月/日 */
+  xLabel?: (d: Point) => string;
+  /** Y 軸最少要涵蓋的範圍（避免很小的差異看起來像大起大落） */
+  minSpan?: number;
 }
 
 /** 簡易折線圖（純 SVG），顯示個人歷次變化 */
-export function LineChart({ data, format, better, label }: Props) {
+export function LineChart({ data, format, better, label, xLabel = (d) => d.date.slice(5).replace('-', '/'), minSpan = 2 }: Props) {
   if (data.length === 0) return null;
   const W = 600;
   const H = 240;
@@ -19,9 +23,10 @@ export function LineChart({ data, format, better, label }: Props) {
   const values = data.map((d) => d.value);
   let min = Math.min(...values);
   let max = Math.max(...values);
-  if (min === max) {
-    min -= 1;
-    max += 1;
+  if (max - min < minSpan) {
+    const mid = (max + min) / 2;
+    min = mid - minSpan / 2;
+    max = mid + minSpan / 2;
   }
   const span = max - min;
   min -= span * 0.15;
@@ -49,7 +54,7 @@ export function LineChart({ data, format, better, label }: Props) {
               <title>{`${d.date}：${format(d.value)}`}</title>
             </rect>
             <text x={x(i)} y={H - pad.b + 18} textAnchor="middle" className="chart-axis">
-              {d.date.slice(5).replace('-', '/')}
+              {xLabel(d)}
             </text>
             <text x={x(i)} y={y(d.value) - 10} textAnchor="middle" className="chart-value">
               {format(d.value)}
@@ -57,7 +62,7 @@ export function LineChart({ data, format, better, label }: Props) {
           </g>
         ))}
       </svg>
-      <figcaption className="muted">{better === 'higher' ? '數值越高越好' : '時間越短越好'}・滑鼠移到點上可看日期</figcaption>
+      <figcaption className="muted">{better === 'higher' ? '數值越高越好' : '時間越短越好'}・滑鼠移到點上可看詳細資料</figcaption>
     </figure>
   );
 }

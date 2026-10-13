@@ -329,6 +329,7 @@ th { background: #f2f4f8; white-space: nowrap; }
 .monster-card { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; }
 .mini-monster { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px; background: var(--grass-light); border: 3px solid var(--line); border-radius: var(--radius); }
 .mini-monster.is-partner { background: #fff1b8; }
+.mini-monster .progress, .partner-card .progress { width: 100%; }
 .partner-detail { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 .partner-detail > div { flex: 1; min-width: 180px; }
 .train-options { display: flex; flex-direction: column; gap: 10px; }
@@ -373,6 +374,51 @@ th { background: #f2f4f8; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .evolve-btn, .evolve-flash { animation: none; } }
 .admin-monster-list { display: flex; flex-direction: column; gap: 10px; }
 .admin-monster { display: flex; gap: 12px; align-items: flex-start; padding: 10px; background: var(--paper); border: 2px solid #d9dce6; border-radius: var(--radius); }
+
+/* ── 對戰與道具 ── */
+.arena { background: linear-gradient(180deg, #dff1ff 0, #e8f8dc 55%, #fff 100%); }
+.arena-pvp { background: linear-gradient(180deg, #ffe7e3 0, #fff4cf 55%, #fff 100%); }
+.arena-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.arena-field { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; }
+.fighter { display: flex; gap: 12px; align-items: center; padding: 8px 10px; background: rgba(255, 255, 255, 0.75); border: 3px solid var(--line); border-radius: var(--radius); }
+.fighter-foe { flex-direction: row-reverse; text-align: right; margin-left: 15%; }
+.fighter-me { margin-right: 15%; }
+.fighter-foe .chip-row { justify-content: flex-end; }
+.fighter-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.fighter.fainted svg, .fighter.fainted canvas, .fighter.fainted img { filter: grayscale(1) opacity(0.6); }
+.battle-log { max-height: 170px; overflow-y: auto; padding: 8px 12px; background: #23263a; color: #f5f5f5; border: 3px solid var(--line); border-radius: var(--radius); font-size: 0.9rem; }
+.battle-log p { margin: 2px 0; }
+.battle-log p:last-child { color: var(--sun); font-weight: 700; }
+.battle-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 10px; }
+.item-pick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; padding: 8px; background: var(--paper); border: 3px dashed #cfd4e0; border-radius: var(--radius); }
+.battle-result { margin-top: 10px; padding: 12px; text-align: center; background: #fff; border: 3px solid var(--line); border-radius: var(--radius); }
+.battle-result h3 { margin: 0 0 6px; }
+.result-won { background: #fff9c4; border-color: var(--sun-dark); }
+.mini-monster.pick { font: inherit; cursor: pointer; color: var(--ink); width: 100%; }
+.mini-monster.pick:disabled { cursor: not-allowed; background: #e4e6ee; }
+.mini-monster.is-picked { background: var(--sun); box-shadow: var(--shadow); }
+.opponent-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.opponent { display: flex; gap: 10px; align-items: center; padding: 8px; background: var(--paper); border: 3px solid var(--line); border-radius: var(--radius); }
+.opponent > div { flex: 1; min-width: 0; }
+.element-table { width: 100%; }
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.shop-item { display: flex; flex-direction: column; gap: 4px; padding: 12px; background: var(--paper); border: 3px solid var(--line); border-radius: var(--radius); }
+.shop-icon { font-size: 2rem; }
+.shop-buy { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.shop-buy select { width: auto; }
+.stat-link { text-decoration: none; color: var(--ink); }
+.stat-link:hover { background: var(--sun); }
+.resume-battle { margin-top: 10px; }
+
+/* ── 段考成績 ── */
+.exam-key { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.exam-table th, .exam-table td { padding: 4px 6px; }
+.score-input { width: 4.6em; padding: 4px 2px; text-align: center; }
+.note-input { min-width: 8em; padding: 4px 6px; }
+.saved-dot { color: var(--grass-dark); margin-left: 4px; font-size: 0.8rem; }
+.exam-subjects { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; margin-top: 10px; }
+.exam-subject { display: flex; flex-direction: column; padding: 6px 10px; background: var(--paper); border: 3px solid var(--line); border-radius: var(--radius); }
+.score-chip { display: inline-block; padding: 1px 6px; font-size: 0.82rem; background: var(--paper); border: 2px solid #d9dce6; border-radius: 4px; white-space: nowrap; }
 
 /* ── 規章、知識、公告 ── */
 .rule-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }

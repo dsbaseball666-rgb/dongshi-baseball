@@ -39,6 +39,8 @@ TEST_ACCOUNTS.forEach((a, i) => {
     playerId = 'P' + String(i).padStart(3, '0');
     playerIds[a.loginId] = playerId;
     gas.appendRow_('Players', { id: playerId, ...a.player, active: 'TRUE', createdAt: now, updatedAt: now });
+    // 測試用：先給 200 點，方便測試道具商店
+    gas.appendRow_('Wallets', { playerId, points: 200, balls: 3, updatedAt: now });
   }
   const salt = 'mock-salt-' + i;
   gas.appendRow_('Users', {

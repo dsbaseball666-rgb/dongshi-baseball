@@ -9,6 +9,7 @@ import { TaskBoard } from '../components/TaskBoard';
 import { useGame } from '../sources/game';
 import { exploresLeft } from '../store/actions';
 import { canEvolve, expToNext } from '../lib/monster';
+import { battlesLeft } from '../lib/battle';
 
 /** 球員首頁：夥伴、點數與任務板（共用一次讀取的遊戲資料） */
 function PlayerGame() {
@@ -35,7 +36,16 @@ function PlayerGame() {
                 <span>🌿 今日探索</span>
                 <strong>{exploresLeft(state.wallet, state.today)}</strong>
               </div>
+              <Link to="/battle" className="stat stat-link">
+                <span>⚔️ 今日對戰</span>
+                <strong>{battlesLeft(state.wallet, state.today).pve + battlesLeft(state.wallet, state.today).pvp}</strong>
+              </Link>
             </div>
+            {state.battle && (
+              <Link to="/battle" className="btn btn-gold resume-battle">
+                ⚔️ 你有一場對戰還沒結束，點這裡繼續
+              </Link>
+            )}
           </div>
           <div className="hero-monster">
             <Link to="/training" className="partner-card">
@@ -45,6 +55,7 @@ function PlayerGame() {
                   <strong>
                     {partner.nickname} <Badge tone="purple">Lv.{partner.level}</Badge>
                   </strong>
+                  {partner.maxHp ? <ProgressBar value={partner.hp ?? partner.maxHp} max={partner.maxHp} tone="hp" label={`HP ${partner.hp ?? partner.maxHp} / ${partner.maxHp}`} /> : null}
                   <ProgressBar value={partner.exp} max={expToNext(partner.level)} label={`EXP ${partner.exp} / ${expToNext(partner.level)}`} />
                   {canEvolve(mon, partner.level) && <Badge tone="yellow">✨ 可以進化了！</Badge>}
                 </>
@@ -131,10 +142,13 @@ export default function CloudHomePage() {
           { to: '/fitness', icon: '💪', label: '體能檢測' },
         ]
       : []),
+    { to: '/exams', icon: '📝', label: '段考成績' },
     ...(user.role === 'player'
       ? [
           { to: '/training', icon: '🥚', label: '怪獸訓練' },
           { to: '/explore', icon: '🌿', label: '野外探索' },
+          { to: '/battle', icon: '⚔️', label: '對戰競技場' },
+          { to: '/shop', icon: '🎒', label: '道具商店' },
         ]
       : []),
     ...(user.role !== 'parent' ? [{ to: '/dex', icon: '📖', label: '怪獸圖鑑' }] : []),
@@ -153,7 +167,7 @@ export default function CloudHomePage() {
           <p>
             <span className={`role-chip role-${user.role}`}>{ROLE_LABELS[user.role]}</span> 帳號：{user.loginId}
           </p>
-          {user.role === 'parent' && <p className="muted small">家長可閱讀球隊規章、防護知識與開放給家長的公告；無法修改球員的體能資料、遊戲獎勵或管理設定。</p>}
+          {user.role === 'parent' && <p className="muted small">家長可閱讀球隊規章、防護知識、開放給家長的公告，以及自己孩子的段考成績；無法修改球員的體能資料、遊戲獎勵或管理設定。</p>}
         </div>
       </section>
       {user.role === 'player' && user.playerId && <PlayerGame />}

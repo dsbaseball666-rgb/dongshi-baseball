@@ -107,6 +107,12 @@ function TrainingContent({ game }: { game: ReturnType<typeof useGame> }) {
                 <p className="muted small">
                   No.{String(partnerMon.dexNo).padStart(3, '0')} {partnerMon.name}・{STAGE_LABELS[partnerMon.stage]}・{partnerMon.element}・{rarityStars(partnerMon.rarity)}
                 </p>
+                {partner.maxHp ? <ProgressBar value={partner.hp ?? partner.maxHp} max={partner.maxHp} tone="hp" label={`HP ${partner.hp ?? partner.maxHp} / ${partner.maxHp}`} /> : null}
+                {partner.atk ? (
+                  <p className="muted small">
+                    攻擊 {partner.atk}・防禦 {partner.def}・速度 {partner.spd}
+                  </p>
+                ) : null}
                 {partner.level >= MAX_LEVEL ? (
                   <Badge tone="yellow">已達最高等級</Badge>
                 ) : (
@@ -153,6 +159,7 @@ function TrainingContent({ game }: { game: ReturnType<typeof useGame> }) {
                 <span className="muted small">
                   Lv.{pm.level}・{STAGE_LABELS[m.stage]}
                 </span>
+                {pm.maxHp ? <ProgressBar value={pm.hp ?? pm.maxHp} max={pm.maxHp} tone="hp" label={`HP ${pm.hp ?? pm.maxHp}/${pm.maxHp}`} /> : null}
                 {evolveInfo(pm)}
                 {pm.partner ? (
                   <Badge tone="yellow">夥伴</Badge>
@@ -179,6 +186,7 @@ function TrainingContent({ game }: { game: ReturnType<typeof useGame> }) {
                     {formatDateTime(l.at)}
                     {l.exp > 0 && `・經驗 +${l.exp}`}
                     {l.points > 0 && `・點數 +${l.points}`}
+                    {l.points < 0 && `・點數 ${l.points}`}
                     {l.balls > 0 && `・捕捉球 +${l.balls}`}
                   </div>
                 </li>

@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import type { Role } from '../types';
 import { useStore } from '../store/DemoStore';
 import { ROLE_LABELS } from '../lib/permissions';
-import { CLOUD_READY_PATHS } from '../config';
+import { CLOUD_ONLY_PATHS, CLOUD_READY_PATHS } from '../config';
 import { Alert } from './UI';
 
 export const NAV_ITEMS: { to: string; label: string; icon: string; roles: Role[] }[] = [
@@ -11,8 +11,11 @@ export const NAV_ITEMS: { to: string; label: string; icon: string; roles: Role[]
   { to: '/notes', label: '棒球筆記', icon: '📒', roles: ['coach', 'player'] },
   { to: '/goals', label: '目標進度', icon: '🎯', roles: ['coach', 'player'] },
   { to: '/fitness', label: '體能檢測', icon: '💪', roles: ['coach', 'player'] },
+  { to: '/exams', label: '段考成績', icon: '📝', roles: ['coach', 'player', 'parent'] },
   { to: '/training', label: '怪獸訓練', icon: '🥚', roles: ['player'] },
   { to: '/explore', label: '野外探索', icon: '🌿', roles: ['player'] },
+  { to: '/battle', label: '對戰競技場', icon: '⚔️', roles: ['player'] },
+  { to: '/shop', label: '道具商店', icon: '🎒', roles: ['player'] },
   { to: '/dex', label: '怪獸圖鑑', icon: '📖', roles: ['coach', 'player'] },
   { to: '/rules', label: '球隊規章', icon: '📜', roles: ['coach', 'player', 'parent'] },
   { to: '/knowledge', label: '防護知識', icon: '⛑️', roles: ['coach', 'player', 'parent'] },
@@ -26,7 +29,7 @@ export function Layout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
   if (!user) return null;
-  const items = NAV_ITEMS.filter((i) => i.roles.includes(user.role) && (mode !== 'cloud' || CLOUD_READY_PATHS.includes(i.to)));
+  const items = NAV_ITEMS.filter((i) => i.roles.includes(user.role) && (mode === 'cloud' ? CLOUD_READY_PATHS.includes(i.to) : !CLOUD_ONLY_PATHS.includes(i.to)));
 
   return (
     <div className="app-shell">

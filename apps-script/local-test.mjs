@@ -12,7 +12,7 @@ try {
   const coaches = gas.readAll_('Users').filter((u) => u.role === 'coach');
   if (coaches.length !== 1) throw new Error('setup() 重複執行後教練帳號數量應為 1，實際為 ' + coaches.length);
   if (spreadsheet.getSheetByName('工作表1')) throw new Error('預設空白工作表應被刪除');
-  if (sheets.length !== 17) throw new Error('應該有 17 張工作表，實際為 ' + sheets.length);
+  if (sheets.length !== 19) throw new Error('應該有 19 張工作表，實際為 ' + sheets.length);
   const ping = JSON.parse(gas.doGet().content);
   if (!ping.ok) throw new Error('doGet 失敗');
   const bad = JSON.parse(gas.doPost({ postData: { contents: 'not json' } }).content);
@@ -21,7 +21,7 @@ try {
   if (unknown.ok || unknown.code !== 'NOT_FOUND') throw new Error('未知的操作應被拒絕');
   gas.runSelfTests();
   const leftovers = ['Players', 'DailyNotes', 'FitnessTests', 'Goals', 'Rules', 'KnowledgeArticles', 'Announcements', 'AuditLogs',
-    'Tasks', 'TaskCompletions', 'Monsters', 'PlayerMonsters', 'MonsterProgress', 'Wallets', 'RewardLogs', 'QuizPasses']
+    'Tasks', 'TaskCompletions', 'Monsters', 'PlayerMonsters', 'MonsterProgress', 'Wallets', 'RewardLogs', 'QuizPasses', 'ExamScores', 'Battles']
     .map((n) => [n, gas.readAll_(n).length])
     .filter(([, c]) => c > 0);
   if (leftovers.length) throw new Error('測試資料沒有清乾淨：' + JSON.stringify(leftovers));
@@ -58,6 +58,17 @@ try {
   if (!acct.ok || !call('login', { loginId: acct.data.loginId, code: acct.data.code }).ok) throw new Error('匯入的球員無法建立帳號');
   if (call('adminPreviewLegacyImport', { sheetUrl: 'https://docs.google.com/spreadsheets/d/NotExisting0123456789xyz/edit' }, token).code !== 'INVALID') throw new Error('打不開的檔案應回報錯誤');
   logs.push('✅ PASS（本機）舊資料匯入完整流程：預覽不寫入、匯入 4 筆、新增 3 位球員、重複匯入不重複、可建立帳號');
+
+  // 舊版試算表升級：PlayerMonsters 只有舊欄位時，setup() 補上新欄位，原有資料不變
+  const old = createGasEnv();
+  const pmSheet = old.spreadsheet.insertSheet('PlayerMonsters');
+  pmSheet.appendRow(['id', 'playerId', 'monsterId', 'nickname', 'level', 'exp', 'partner', 'obtainedAt', 'obtainedBy']);
+  pmSheet.appendRow(["'PM-1", "'P001", "'M001", "'小火", "'5", "'10", "'TRUE", "'2026-10-01", "'starter"]);
+  old.gas.setup();
+  const header = pmSheet.getRange(1, 1, 1, 11).getDisplayValues()[0];
+  const pm = old.gas.readAll_('PlayerMonsters');
+  if (header[9] !== 'hp' || header[10] !== 'hpAt' || pm.length !== 1 || pm[0].nickname !== '小火' || pm[0].hp !== '') throw new Error('舊版工作表升級不正確：' + header.join(','));
+  logs.push('✅ PASS（本機）舊版工作表升級：自動補上新欄位，原有資料不變');
 } catch (e) {
   failed = true;
   logs.push('❌ ' + (e && e.stack ? e.stack : e));

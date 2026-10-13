@@ -185,6 +185,87 @@ export interface PlayerMonster {
   partner: boolean;
   obtainedAt: string;
   obtainedBy: 'starter' | 'capture';
+  /** 雲端模式由伺服器計算：目前 HP（含自然回復）與能力值 */
+  hp?: number;
+  maxHp?: number;
+  atk?: number;
+  def?: number;
+  spd?: number;
+}
+
+export type ItemId = 'potion' | 'superPotion' | 'powerGlove' | 'guardGear';
+
+/** 對戰中的一方（建立對戰時的快照） */
+export interface Combatant {
+  pmId: string;
+  monsterId: string;
+  name: string;
+  level: number;
+  element: MonsterElement;
+  owner: string;
+  maxHp: number;
+  hp: number;
+  atk: number;
+  def: number;
+  spd: number;
+  cd: number;
+  atkUp: boolean;
+  defUp: boolean;
+}
+
+export type BattleMode = 'pve' | 'pvp';
+export type BattleStatus = 'active' | 'won' | 'lost' | 'draw' | 'fled';
+
+/** Battles 工作表：一場對戰 */
+export interface Battle {
+  id: string;
+  mode: BattleMode;
+  status: BattleStatus;
+  opponentName: string;
+  turn: number;
+  me: Combatant;
+  foe: Combatant;
+  log: string[];
+  result: { exp: number; points: number; drop: string } | null;
+  createdAt: string;
+}
+
+export interface BattleSummary {
+  id: string;
+  mode: BattleMode;
+  /** true：別人挑戰我（防守紀錄） */
+  defense: boolean;
+  status: BattleStatus;
+  myMonster: string;
+  foeMonster: string;
+  opponentName: string;
+  createdAt: string;
+}
+
+export interface Opponent {
+  playerId: string;
+  name: string;
+  nickname: string;
+  monsterId: string;
+  element: MonsterElement;
+  level: number;
+  challengedToday: boolean;
+}
+
+/** ExamScores 工作表：段考成績（同一球員同一次段考一筆） */
+export interface ExamScore {
+  id: string;
+  playerId: string;
+  schoolYear: number;
+  semester: '上' | '下';
+  examNo: number;
+  /** 7＝一年級、8＝二年級、9＝三年級 */
+  grade: 7 | 8 | 9;
+  scores: Record<string, number>;
+  note: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** MonsterProgress 工作表：怪獸經驗與成長紀錄 */
@@ -214,6 +295,11 @@ export interface Wallet {
   supplyDate: string;
   seenMonsterIds: string[];
   encounter: Encounter | null;
+  /** 以下為雲端模式的道具與對戰次數 */
+  items?: Partial<Record<ItemId, number>>;
+  battleDate?: string;
+  pveCount?: number;
+  pvpCount?: number;
 }
 
 export interface RewardLog {

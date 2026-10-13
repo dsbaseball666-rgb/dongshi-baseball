@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import type { KnowledgeArticle, Monster, MonsterProgress, PlayerMonster, RewardLog, Task, TaskCompletion, Wallet } from '../types';
+import type { Battle, BattleMode, BattleSummary, ExploreAreaId, ItemId, KnowledgeArticle, Monster, MonsterProgress, Opponent, PlayerMonster, RewardLog, Task, TaskCompletion, Wallet } from '../types';
 import { useStore } from '../store/DemoStore';
 import {
   capture,
@@ -41,6 +41,22 @@ export interface GameState {
   tasks: Task[];
   completions: TaskCompletion[];
   quizPassedArticleIds: string[];
+  /** 以下只有雲端模式提供 */
+  battle?: Battle | null;
+  battleHistory?: BattleSummary[];
+}
+
+export type BattleAction = 'attack' | 'skill' | 'defend' | 'item' | 'flee';
+export interface BattleStart {
+  mode: BattleMode;
+  playerMonsterId: string;
+  areaId?: ExploreAreaId;
+  opponentPlayerId?: string;
+}
+export interface BattleTurnResult {
+  ended: Exclude<Battle['status'], 'active'> | null;
+  result: Battle['result'];
+  battle: Battle;
 }
 
 type ServerMonster = Omit<Monster, 'shape' | 'accessories' | 'palette'>;
@@ -146,6 +162,19 @@ export function useGame() {
         if (!cloud) return perform('怪獸進化', (d) => evolveMonster(d, user, pmId));
         return call<EvolveResult & { state: GameState }>('evolveMonster', { playerMonsterId: pmId }, '怪獸進化');
       },
+      // 道具與對戰只在雲端模式提供（結果由伺服器計算）
+      async buyItem(itemId: ItemId, qty: number) {
+        await call('buyItem', { itemId, qty }, '購買道具');
+      },
+      async useItem(itemId: ItemId, pmId: string): Promise<number> {
+        return (await call<{ healed: number; state: GameState }>('useItem', { itemId, playerMonsterId: pmId }, '使用道具')).healed;
+      },
+      async startBattle(input: BattleStart) {
+        await call('startBattle', input, '開始對戰');
+      },
+      async battleAction(battleId: string, action: BattleAction, itemId?: ItemId): Promise<BattleTurnResult> {
+        return call<BattleTurnResult & { state: GameState }>('battleAction', { battleId, action, itemId }, '對戰行動');
+      },
     }),
     [cloud, perform, user, call],
   );
@@ -153,6 +182,13 @@ export function useGame() {
   const base = { monsters: monsters.monsters, monstersLoading: monsters.loading, monstersError: monsters.error, ...ops };
   if (!cloud) return { ...base, state: isPlayer ? demoState : null, loading: false, error: null as string | null, reload: () => undefined };
   return { ...base, state: q.state.data, loading: q.state.loading || monsters.loading, error: q.state.error, reload: q.reload };
+}
+
+/** 隊友挑戰的對手名單（雲端模式） */
+export function useOpponents(enabled: boolean) {
+  const { mode, api, user } = useStore();
+  const q = useCloudQuery<Opponent[]>(mode === 'cloud' && enabled, `opponents-${user?.id}`, () => api<{ opponents: Opponent[] }>('listOpponents', {}, '讀取隊友名單').then((r) => r.opponents), []);
+  return { opponents: q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload };
 }
 
 export interface QuizResult {

@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.1.0';
+const API_VERSION = '5.2.0';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -32,16 +32,20 @@ const SCHEMA = {
   Tasks: ['id', 'title', 'description', 'category', 'repeat', 'verify', 'expReward', 'pointReward', 'ballReward', 'active'],
   TaskCompletions: ['id', 'taskId', 'playerId', 'periodKey', 'status', 'submittedAt', 'reviewedBy', 'reviewedAt', 'claimedAt'],
   Monsters: ['id', 'dexNo', 'name', 'element', 'rarity', 'stage', 'evolvesTo', 'evolveLevel', 'description', 'habitat', 'catchRate', 'isStarter', 'inWild'],
-  PlayerMonsters: ['id', 'playerId', 'monsterId', 'nickname', 'level', 'exp', 'partner', 'obtainedAt', 'obtainedBy'],
+  // hp 空白代表滿血；hpAt 是最後一次寫入 hp 的時間（用來計算自然回復）
+  PlayerMonsters: ['id', 'playerId', 'monsterId', 'nickname', 'level', 'exp', 'partner', 'obtainedAt', 'obtainedBy', 'hp', 'hpAt'],
   MonsterProgress: ['id', 'playerId', 'playerMonsterId', 'expGain', 'levelAfter', 'reason', 'at'],
   Rules: ['id', 'no', 'title', 'content', 'category', 'version', 'updatedAt', 'updatedBy', 'needsCoachReview', 'reviewNote', 'isAnnouncement'],
   KnowledgeArticles: ['id', 'title', 'category', 'audience', 'summary', 'details', 'cautions', 'sources', 'updatedAt', 'status', 'reviewed', 'quiz'],
   Announcements: ['id', 'title', 'body', 'audience', 'pinned', 'status', 'publishedAt', 'createdBy', 'updatedAt'],
   AuditLogs: ['id', 'at', 'actorId', 'actorName', 'action', 'target', 'detail'],
   // 第四階段：遊戲（第一次使用時自動建立）
-  Wallets: ['playerId', 'points', 'balls', 'exploreDate', 'exploreCount', 'supplyDate', 'seenMonsterIds', 'encounterMonsterId', 'encounterAreaId', 'encounterAt', 'updatedAt'],
+  Wallets: ['playerId', 'points', 'balls', 'exploreDate', 'exploreCount', 'supplyDate', 'seenMonsterIds', 'encounterMonsterId', 'encounterAreaId', 'encounterAt', 'updatedAt', 'items', 'battleDate', 'pveCount', 'pvpCount'],
   RewardLogs: ['id', 'playerId', 'source', 'detail', 'exp', 'points', 'balls', 'at'],
   QuizPasses: ['id', 'playerId', 'articleId', 'date', 'at'],
+  // 5.2：段考成績、對戰
+  ExamScores: ['id', 'playerId', 'schoolYear', 'semester', 'examNo', 'grade', 'scores', 'note', 'createdBy', 'createdAt', 'updatedAt'],
+  Battles: ['id', 'playerId', 'mode', 'opponentPlayerId', 'opponentName', 'date', 'status', 'state', 'log', 'result', 'createdAt', 'updatedAt'],
 };
 
 // 遊戲規則（與前端示範模式相同）
@@ -53,6 +57,40 @@ const GAME = {
   rarityWeight: { 1: 60, 2: 30, 3: 10 },
   trainPlans: { light: { label: '基礎練習', cost: 10, exp: 15 }, focus: { label: '專項特訓', cost: 30, exp: 50 } },
 };
+// 對戰與血量（與前端 src/lib/battle.ts 的說明文字相同）
+const BATTLE = {
+  pveDaily: 5,
+  pvpDaily: 3,
+  regenPerHour: 0.25, // 每小時自然回復最大 HP 的 25%（約 4 小時回滿）
+  maxTurns: 30,
+  skillPower: 1.7,
+  skillCooldown: 3,
+  pveFleeRate: 0.7,
+  rewards: {
+    pve: { won: { exp: 20, points: 8 }, lost: { exp: 5, points: 0 }, draw: { exp: 5, points: 0 } },
+    pvp: { won: { exp: 30, points: 12 }, lost: { exp: 8, points: 0 }, draw: { exp: 8, points: 0 } },
+  },
+  potionDropRate: 0.3,
+};
+// 屬性相剋：左邊剋右邊（傷害 ×1.3；反過來 ×0.8）
+const ELEMENT_BEATS = { 熱血: '成長', 成長: '堅守', 堅守: '疾風', 疾風: '智慧', 智慧: '團結', 團結: '熱血' };
+// 道具：只能用遊戲點數購買（捕捉球不在商店販售）
+const ITEMS = {
+  potion: { label: '回復藥水', price: 15, heal: 0.4 },
+  superPotion: { label: '高級回復藥', price: 40, heal: 1 },
+  powerGlove: { label: '力量手套', price: 20, boost: 'atkUp' },
+  guardGear: { label: '防護護具', price: 20, boost: 'defUp' },
+};
+const ITEM_MAX_HOLD = 20;
+
+// 段考成績：各年級的科目（7＝一年級、8＝二年級、9＝三年級）
+const EXAM_SUBJECTS = {
+  7: ['國文', '數學', '英文', '社會', '自然', '建教'],
+  8: ['國文', '數學', '英文', '地理', '歷史', '公民', '理化', '建教'],
+  9: ['國文', '數學', '英文', '地理', '歷史', '公民', '理化', '地科生物'],
+};
+const SEMESTERS = ['上', '下'];
+
 const AREAS = ['field', 'riverside', 'orchard'];
 const ELEMENTS = ['熱血', '疾風', '堅守', '成長', '智慧', '團結'];
 const TASK_CATEGORIES = ['每日筆記', '紀律', '防護知識', '團隊合作', '持續進步', '訓練', '休養參與'];
@@ -168,6 +206,16 @@ const ROUTES = {
   // 匯入舊體能檢測資料（預覽不寫入；確認後才寫入）
   adminPreviewLegacyImport: { roles: COACH, fn: (ctx) => ({ preview: summarizeLegacyPlan_(planLegacyImportFromUrl_(ctx.payload.sheetUrl)) }) },
   adminRunLegacyImport: { roles: COACH, write: true, fn: adminRunLegacyImport_ },
+  // 段考成績：教練輸入；球員看自己的、家長看子女的
+  listExamScores: { roles: ALL_ROLES, fn: listExamScores_ },
+  saveExamScores: { roles: COACH, write: true, fn: saveExamScores_ },
+  deleteExamScore: { roles: COACH, write: true, fn: deleteExamScore_ },
+  // 道具與對戰：所有結果由伺服器計算
+  buyItem: { roles: ['player'], write: true, fn: buyItem_ },
+  useItem: { roles: ['player'], write: true, fn: useItem_ },
+  listOpponents: { roles: ['player'], fn: listOpponents_ },
+  startBattle: { roles: ['player'], write: true, fn: startBattle_ },
+  battleAction: { roles: ['player'], write: true, fn: battleAction_ },
 };
 
 function doGet() {
@@ -810,13 +858,24 @@ function parseWallet_(r) {
     exploreCount: Number(r.exploreCount) || 0, supplyDate: r.supplyDate || '',
     seenMonsterIds: r.seenMonsterIds ? r.seenMonsterIds.split(',').filter(String) : [],
     encounter: r.encounterMonsterId ? { monsterId: r.encounterMonsterId, areaId: r.encounterAreaId, at: r.encounterAt } : null,
+    items: walletItems_(r),
+    battleDate: r.battleDate || '',
+    pveCount: Number(r.pveCount) || 0,
+    pvpCount: Number(r.pvpCount) || 0,
   };
+}
+
+function walletItems_(w) {
+  const raw = parseJson_(w.items, {});
+  const out = {};
+  Object.keys(ITEMS).forEach((k) => (out[k] = Math.max(0, Math.floor(Number(raw[k]) || 0))));
+  return out;
 }
 
 /** 讀取球員錢包（還沒有時先給預設值，存檔時才寫入） */
 function loadWallet_(playerId) {
   const r = readAll_('Wallets').find((x) => x.playerId === playerId);
-  return r || { playerId: playerId, points: '0', balls: '0', exploreDate: '', exploreCount: '0', supplyDate: '', seenMonsterIds: '', encounterMonsterId: '', encounterAreaId: '', encounterAt: '' };
+  return r || { playerId: playerId, points: '0', balls: '0', exploreDate: '', exploreCount: '0', supplyDate: '', seenMonsterIds: '', encounterMonsterId: '', encounterAreaId: '', encounterAt: '', items: '', battleDate: '', pveCount: '0', pvpCount: '0' };
 }
 
 function saveWallet_(w) {
@@ -877,10 +936,29 @@ function gameState_(playerId) {
   const keys = {};
   tasks.forEach((t) => (keys[t.id] = periodKey_(t, today)));
   const byTime = (x, y) => (x.at < y.at ? 1 : -1);
+  const monById = {};
+  readAll_('Monsters').forEach((m) => (monById[m.id] = m));
+  const nowMs = Date.now();
+  const battles = readAll_('Battles');
+  const active = battles.find((b) => b.playerId === playerId && b.status === 'active');
   return {
     today: today,
     wallet: parseWallet_(loadWallet_(playerId)),
-    playerMonsters: readAll_('PlayerMonsters').filter((x) => x.playerId === playerId).map(parsePM_),
+    playerMonsters: readAll_('PlayerMonsters')
+      .filter((x) => x.playerId === playerId)
+      .map((r) => {
+        const pm = parsePM_(r);
+        const m = monById[r.monsterId];
+        if (!m) return pm;
+        const s = monsterStats_(m, pm.level);
+        return Object.assign(pm, { maxHp: s.maxHp, hp: currentHp_(r, s.maxHp, nowMs), atk: s.atk, def: s.def, spd: s.spd });
+      }),
+    battle: active ? battleView_(active) : null,
+    battleHistory: battles
+      .filter((b) => b.status !== 'active' && (b.playerId === playerId || b.opponentPlayerId === playerId))
+      .sort((x, y) => (x.createdAt < y.createdAt ? 1 : -1))
+      .slice(0, 10)
+      .map((b) => battleSummary_(b, playerId)),
     progress: readAll_('MonsterProgress').filter((x) => x.playerId === playerId).map((r) => ({ id: r.id, playerId: r.playerId, playerMonsterId: r.playerMonsterId, expGain: Number(r.expGain), levelAfter: Number(r.levelAfter), reason: r.reason, at: r.at })).sort(byTime).slice(0, 15),
     rewardLogs: readAll_('RewardLogs').filter((x) => x.playerId === playerId).map((r) => ({ id: r.id, playerId: r.playerId, source: r.source, detail: r.detail, exp: Number(r.exp), points: Number(r.points), balls: Number(r.balls), at: r.at })).sort(byTime).slice(0, 15),
     tasks: tasks,
@@ -1615,6 +1693,497 @@ function adminRunLegacyImport_(ctx) {
   return { newPlayers: newPlayers.length, imported: fitness.length, duplicates: plan.duplicates, skippedCount: plan.skipped.length };
 }
 
+// ───────────────────────── 段考成績 ─────────────────────────
+
+/** 可以讀取這位球員段考成績的人：教練、球員本人、該球員的家長 */
+function requireCanReadExam_(actor, playerId) {
+  if (actor.role === 'coach') return;
+  if (actor.role === 'player' && actor.playerId === playerId) return;
+  if (actor.role === 'parent' && (actor.childPlayerIds || '').split(',').indexOf(playerId) >= 0) return;
+  throw apiError_('FORBIDDEN', '只能查看自己（或自己子女）的成績。');
+}
+
+function parseExam_(r) {
+  return {
+    id: r.id, playerId: r.playerId, schoolYear: Number(r.schoolYear), semester: r.semester, examNo: Number(r.examNo), grade: Number(r.grade),
+    scores: parseJson_(r.scores, {}), note: r.note, createdBy: r.createdBy, createdAt: r.createdAt, updatedAt: r.updatedAt,
+  };
+}
+
+/** 教練不指定球員時回傳全隊；球員、家長一定要指定（並檢查權限） */
+function listExamScores_(ctx) {
+  const a = ctx.actor;
+  const playerId = str_(ctx.payload.playerId, '球員', { max: 20 });
+  if (!playerId && a.role !== 'coach') throw apiError_('FORBIDDEN', '只能查看自己（或自己子女）的成績。');
+  if (playerId) requireCanReadExam_(a, playerId);
+  return { records: readAll_('ExamScores').filter((r) => !playerId || r.playerId === playerId).map(parseExam_) };
+}
+
+/** 驗證一次段考的共同欄位（學年、學期、第幾次、年級） */
+function examKey_(p) {
+  const schoolYear = Number(p.schoolYear);
+  if (!(Math.round(schoolYear) === schoolYear && schoolYear >= 100 && schoolYear <= 200)) throw apiError_('INVALID', '「學年度」必須是 100～200 的整數（例如 115）。');
+  if (SEMESTERS.indexOf(p.semester) < 0) throw apiError_('INVALID', '「學期」必須是上或下。');
+  const examNo = Number(p.examNo);
+  if ([1, 2, 3].indexOf(examNo) < 0) throw apiError_('INVALID', '「段考」必須是第 1、2 或 3 次。');
+  const grade = Number(p.grade);
+  if (!EXAM_SUBJECTS[grade]) throw apiError_('INVALID', '「年級」必須是一、二或三年級。');
+  return { schoolYear: schoolYear, semester: p.semester, examNo: examNo, grade: grade };
+}
+
+/** 驗證一位球員的各科分數：0～100，最多一位小數；空白代表沒有這科成績 */
+function examScores_(raw, grade, who) {
+  const subjects = EXAM_SUBJECTS[grade];
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const out = {};
+  Object.keys(src).forEach((k) => {
+    if (subjects.indexOf(k) < 0) throw apiError_('INVALID', '「' + k + '」不是' + '一二三'.charAt(grade - 7) + '年級的科目。');
+    const v = src[k];
+    if (v === '' || v === null || v === undefined) return;
+    const n = Number(v);
+    if (typeof v !== 'number' || !isFinite(n) || n < 0 || n > 100) throw apiError_('INVALID', who + '的' + k + '成績必須是 0～100。');
+    if (Math.round(n * 10) / 10 !== n) throw apiError_('INVALID', who + '的' + k + '成績最多一位小數。');
+    out[k] = n;
+  });
+  if (Object.keys(out).length === 0) throw apiError_('INVALID', who + '：請至少輸入一科成績。');
+  return out;
+}
+
+/** 儲存一次段考的成績（可以一次多位球員）；同一球員同一次段考只有一筆，再次儲存會更新 */
+function saveExamScores_(ctx) {
+  const a = ctx.actor;
+  const key = examKey_(ctx.payload);
+  const entries = Array.isArray(ctx.payload.entries) ? ctx.payload.entries : [];
+  if (entries.length < 1 || entries.length > 80) throw apiError_('INVALID', '一次可以儲存 1～80 位球員的成績。');
+  const players = {};
+  readAll_('Players').forEach((p) => (players[p.id] = p));
+  const seen = {};
+  const clean = entries.map((e) => {
+    const playerId = str_(e && e.playerId, '球員', { required: true, max: 20 });
+    const p = players[playerId];
+    if (!p) throw apiError_('NOT_FOUND', '找不到球員 ' + playerId + '。');
+    if (seen[playerId]) throw apiError_('INVALID', p.name + ' 重複出現。');
+    seen[playerId] = true;
+    return { playerId: playerId, scores: examScores_(e.scores, key.grade, p.name), note: str_(e.note, '備註', { max: 100 }) };
+  });
+  const existing = readAll_('ExamScores').filter((r) => Number(r.schoolYear) === key.schoolYear && r.semester === key.semester && Number(r.examNo) === key.examNo);
+  const now = nowIso_();
+  const added = [];
+  const saved = [];
+  clean.forEach((e) => {
+    const old = existing.find((r) => r.playerId === e.playerId);
+    if (old) {
+      const row = Object.assign({}, old, { grade: key.grade, scores: JSON.stringify(e.scores), note: e.note, updatedAt: now });
+      updateRow_('ExamScores', old._row, row);
+      saved.push(row);
+    } else {
+      const row = Object.assign({ id: newId_('EX'), playerId: e.playerId }, key, { scores: JSON.stringify(e.scores), note: e.note, createdBy: a.displayName, createdAt: now, updatedAt: now });
+      added.push(row);
+      saved.push(row);
+    }
+  });
+  appendRows_('ExamScores', added);
+  audit_(a, '儲存段考成績', key.schoolYear + key.semester + ' 第' + key.examNo + '次段考', '新增 ' + added.length + '、更新 ' + (clean.length - added.length) + ' 位');
+  return { created: added.length, updated: clean.length - added.length, records: saved.map((r) => parseExam_(stringify_(r))) };
+}
+
+function deleteExamScore_(ctx) {
+  const a = ctx.actor;
+  const id = str_(ctx.payload.id, '成績', { required: true, max: 40 });
+  const r = readAll_('ExamScores').find((x) => x.id === id);
+  if (!r) throw apiError_('NOT_FOUND', '找不到這筆成績。');
+  sheet_('ExamScores').deleteRow(r._row);
+  audit_(a, '刪除段考成績', r.playerId, r.schoolYear + r.semester + ' 第' + r.examNo + '次段考');
+  return { deleted: id };
+}
+
+// ───────────────────────── 血量與能力值 ─────────────────────────
+
+/** 怪獸能力值：由等級、進化階段、稀有度與屬性計算（不另外存檔，調整公式時全部自動更新） */
+function monsterStats_(m, level) {
+  const lv = Number(level) || 1;
+  const st = Number(m.stage) || 1;
+  const ra = Number(m.rarity) || 1;
+  const s = { maxHp: 40 + lv * 6 + st * 10 + ra * 5, atk: 10 + lv * 2 + st * 3 + ra * 2, def: 8 + lv * 1.5 + st * 3 + ra * 2, spd: 10 + lv * 1.5 + ra };
+  const bonus = { 熱血: 'atk', 堅守: 'def', 疾風: 'spd', 成長: 'maxHp' }[m.element];
+  if (bonus) s[bonus] *= 1.1;
+  if (m.element === '團結') {
+    s.atk *= 1.05;
+    s.def *= 1.05;
+  }
+  Object.keys(s).forEach((k) => (s[k] = Math.round(s[k])));
+  s.crit = m.element === '智慧' ? 0.15 : 0.08;
+  return s;
+}
+
+/** 目前 HP：hp 空白代表滿血；受傷後每小時自然回復最大 HP 的一部分 */
+function currentHp_(pm, maxHp, nowMs) {
+  if (pm.hp === '' || pm.hp === undefined || pm.hp === null) return maxHp;
+  const hp = Math.max(0, Math.min(maxHp, Number(pm.hp) || 0));
+  const at = Date.parse(pm.hpAt);
+  const regen = isFinite(at) ? Math.floor(((nowMs - at) / 3600000) * BATTLE.regenPerHour * maxHp) : maxHp;
+  return Math.min(maxHp, hp + Math.max(0, regen));
+}
+
+function savePmHp_(pm, hp, maxHp) {
+  updateRow_('PlayerMonsters', pm._row, Object.assign({}, pm, { hp: hp >= maxHp ? '' : Math.max(0, Math.round(hp)), hpAt: nowIso_() }));
+}
+
+// ───────────────────────── 道具 ─────────────────────────
+
+/** 用遊戲點數購買道具（不能用真實金錢；捕捉球不在商店販售） */
+function buyItem_(ctx) {
+  const playerId = requireGamePlayer_(ctx.actor);
+  const itemId = String(ctx.payload.itemId || '');
+  const item = ITEMS[itemId];
+  if (!item || !Object.prototype.hasOwnProperty.call(ITEMS, itemId)) throw apiError_('INVALID', '商店沒有這個道具。');
+  const qty = Number(ctx.payload.qty);
+  if (!(Math.round(qty) === qty && qty >= 1 && qty <= 10)) throw apiError_('INVALID', '一次可以購買 1～10 個。');
+  const w = loadWallet_(playerId);
+  const items = walletItems_(w);
+  if (items[itemId] + qty > ITEM_MAX_HOLD) throw apiError_('INVALID', item.label + '最多只能持有 ' + ITEM_MAX_HOLD + ' 個（目前 ' + items[itemId] + ' 個）。');
+  const cost = item.price * qty;
+  const points = Number(w.points) || 0;
+  if (points < cost) throw apiError_('INVALID', '點數不足，需要 ' + cost + ' 點（目前 ' + points + ' 點）。完成任務或對戰可以獲得點數。');
+  items[itemId] += qty;
+  w.items = JSON.stringify(items);
+  w.points = points - cost;
+  saveWallet_(w);
+  rewardLog_(playerId, '商店', '購買 ' + item.label + ' ×' + qty, 0, -cost, 0);
+  return { state: gameState_(playerId) };
+}
+
+/** 對戰以外使用回復道具 */
+function useItem_(ctx) {
+  const pm = findOwnPM_(ctx.actor, ctx.payload.playerMonsterId);
+  requireActivePlayer_(pm.playerId);
+  const itemId = String(ctx.payload.itemId || '');
+  const item = Object.prototype.hasOwnProperty.call(ITEMS, itemId) ? ITEMS[itemId] : null;
+  if (!item) throw apiError_('INVALID', '沒有這個道具。');
+  if (!item.heal) throw apiError_('INVALID', item.label + '只能在對戰中使用。');
+  if (readAll_('Battles').some((b) => b.playerId === pm.playerId && b.status === 'active')) throw apiError_('INVALID', '你有一場進行中的對戰，請在對戰畫面使用道具。');
+  const w = loadWallet_(pm.playerId);
+  const items = walletItems_(w);
+  if (items[itemId] < 1) throw apiError_('INVALID', '你沒有' + item.label + '。可以到商店用點數購買。');
+  const m = readAll_('Monsters').find((x) => x.id === pm.monsterId);
+  if (!m) throw apiError_('NOT_FOUND', '怪獸資料不存在。');
+  const s = monsterStats_(m, pm.level);
+  const hp = currentHp_(pm, s.maxHp, Date.now());
+  if (hp >= s.maxHp) throw apiError_('INVALID', pm.nickname + ' 的 HP 已經是滿的。');
+  const after = Math.min(s.maxHp, hp + Math.ceil(s.maxHp * item.heal));
+  savePmHp_(pm, after, s.maxHp);
+  items[itemId] -= 1;
+  w.items = JSON.stringify(items);
+  saveWallet_(w);
+  return { healed: after - hp, state: gameState_(pm.playerId) };
+}
+
+// ───────────────────────── 對戰 ─────────────────────────
+
+/** 對戰中的一方（建立對戰時的能力值快照） */
+function combatant_(pm, m, hp, owner) {
+  const s = monsterStats_(m, pm.level);
+  return {
+    pmId: pm.id || '', monsterId: m.id, name: pm.nickname || m.name, level: Number(pm.level) || 1, element: m.element, owner: owner,
+    maxHp: s.maxHp, hp: hp === undefined ? s.maxHp : hp, atk: s.atk, def: s.def, spd: s.spd, crit: s.crit, cd: 0, atkUp: false, defUp: false, defending: false,
+  };
+}
+
+/** 傷害公式（純計算，方便測試） */
+function battleDamage_(att, dfd, power, rng) {
+  const type = ELEMENT_BEATS[att.element] === dfd.element ? 1.3 : ELEMENT_BEATS[dfd.element] === att.element ? 0.8 : 1;
+  const crit = rng() < att.crit;
+  const atk = att.atk * (att.atkUp ? 1.3 : 1);
+  const def = dfd.def * (dfd.defUp ? 1.3 : 1);
+  const lvScale = 0.9 + (Number(att.level) || 1) * 0.05; // 等級越高傷害越高，讓高等級對戰也維持 4～6 回合
+  const dmg = Math.max(1, Math.round((atk / def) * 14 * lvScale * power * (0.85 + rng() * 0.15) * type * (crit ? 1.5 : 1) * (dfd.defending ? 0.5 : 1)));
+  return { dmg: dmg, crit: crit, type: type };
+}
+
+/** 一方的行動；回傳是否打倒對手 */
+function battleMove_(actor, target, move, log, rng) {
+  if (move === 'defend') {
+    actor.defending = true;
+    log.push(actor.name + ' 擺出防守姿勢！');
+    return false;
+  }
+  const skill = move === 'skill';
+  if (skill) actor.cd = BATTLE.skillCooldown;
+  const r = battleDamage_(actor, target, skill ? BATTLE.skillPower : 1, rng);
+  target.hp = Math.max(0, target.hp - r.dmg);
+  log.push(
+    actor.name + (skill ? ' 使出必殺技！' : ' 發動攻擊！') + (r.crit ? '會心一擊！' : '') + (r.type > 1 ? '效果絕佳！' : r.type < 1 ? '效果不太好…' : '') +
+      target.name + ' 受到 ' + r.dmg + ' 點傷害。',
+  );
+  if (target.hp <= 0) {
+    log.push(target.name + ' 倒下了！');
+    return true;
+  }
+  return false;
+}
+
+/** 對手（電腦）的選擇 */
+function battleAi_(foe, rng) {
+  const r = rng();
+  if (foe.cd === 0 && r < 0.45) return 'skill';
+  if (r > 0.88) return 'defend';
+  return 'attack';
+}
+
+/**
+ * 處理一回合（純計算，不讀寫試算表）：st 是對戰狀態、items 是背包；會直接修改兩者。
+ * 回傳 { log, ended: null | 'won' | 'lost' | 'draw' | 'fled', usedItem }
+ */
+function resolveTurn_(st, mode, action, itemId, items, rng) {
+  const me = st.me;
+  const foe = st.foe;
+  const log = [];
+  let ended = null;
+  let usedItem = '';
+  if (['attack', 'skill', 'defend', 'item', 'flee'].indexOf(action) < 0) throw apiError_('INVALID', '不正確的行動。');
+  if (action === 'skill' && me.cd > 0) throw apiError_('INVALID', '必殺技還在冷卻中（還要 ' + me.cd + ' 回合）。');
+  if (action === 'item') {
+    const item = Object.prototype.hasOwnProperty.call(ITEMS, itemId) ? ITEMS[itemId] : null;
+    if (!item) throw apiError_('INVALID', '沒有這個道具。');
+    if (!(items[itemId] > 0)) throw apiError_('INVALID', '你沒有' + item.label + '。');
+    if (item.heal && me.hp >= me.maxHp) throw apiError_('INVALID', 'HP 已經是滿的。');
+    if (item.boost && me[item.boost]) throw apiError_('INVALID', '這場對戰已經用過' + item.label + '了。');
+    items[itemId] -= 1;
+    usedItem = itemId;
+    if (item.heal) {
+      const before = me.hp;
+      me.hp = Math.min(me.maxHp, me.hp + Math.ceil(me.maxHp * item.heal));
+      log.push('使用了' + item.label + '！' + me.name + ' 回復 ' + (me.hp - before) + ' HP。');
+    } else {
+      me[item.boost] = true;
+      log.push('使用了' + item.label + '！' + me.name + (item.boost === 'atkUp' ? ' 的攻擊力提升了！' : ' 的防禦力提升了！'));
+    }
+  }
+  if (action === 'flee') {
+    if (mode === 'pvp') {
+      log.push('你選擇投降。');
+      return { log: log, ended: 'lost', usedItem: usedItem };
+    }
+    if (rng() < BATTLE.pveFleeRate) {
+      log.push('成功逃跑了！');
+      return { log: log, ended: 'fled', usedItem: usedItem };
+    }
+    log.push('逃跑失敗！');
+  }
+  const foeMove = battleAi_(foe, rng);
+  // 防守、使用道具、逃跑優先行動；其餘依速度，速度快的先出手（相同時隨機）
+  const meQuick = ['defend', 'item', 'flee'].indexOf(action) >= 0;
+  const foeQuick = foeMove === 'defend';
+  const meFirst = meQuick !== foeQuick ? meQuick : me.spd > foe.spd || (me.spd === foe.spd && rng() < 0.5);
+  const order = meFirst ? ['me', 'foe'] : ['foe', 'me'];
+  for (let i = 0; i < order.length && !ended; i++) {
+    if (order[i] === 'me') {
+      if (action === 'attack' || action === 'skill' || action === 'defend') {
+        if (battleMove_(me, foe, action, log, rng)) ended = 'won';
+      }
+    } else if (battleMove_(foe, me, foeMove, log, rng)) {
+      ended = 'lost';
+    }
+  }
+  // 回合結束：冷卻 -1、取消防守姿勢
+  [me, foe].forEach((c) => {
+    if (c.cd > 0) c.cd -= 1;
+    c.defending = false;
+  });
+  st.turn += 1;
+  if (!ended && st.turn > BATTLE.maxTurns) {
+    const a = me.hp / me.maxHp;
+    const b = foe.hp / foe.maxHp;
+    ended = a > b ? 'won' : a < b ? 'lost' : 'draw';
+    log.push('已經到達 ' + BATTLE.maxTurns + ' 回合，依剩餘 HP 比例判定' + (ended === 'won' ? '你獲勝！' : ended === 'lost' ? '對手獲勝。' : '平手。'));
+  }
+  return { log: log, ended: ended, usedItem: usedItem };
+}
+
+function battleView_(b) {
+  const st = parseJson_(b.state, {});
+  return {
+    id: b.id, mode: b.mode, status: b.status, opponentName: b.opponentName, turn: st.turn || 1, me: st.me || null, foe: st.foe || null,
+    log: parseJson_(b.log, []), result: parseJson_(b.result, null), createdAt: b.createdAt,
+  };
+}
+
+/** 對戰紀錄摘要；被挑戰的一方看到的勝負是反過來的 */
+function battleSummary_(b, playerId) {
+  const st = parseJson_(b.state, {});
+  const defense = b.playerId !== playerId;
+  const flip = { won: 'lost', lost: 'won', draw: 'draw', fled: 'fled' };
+  return {
+    id: b.id, mode: b.mode, defense: defense, status: defense ? flip[b.status] || b.status : b.status, createdAt: b.createdAt,
+    myMonster: defense ? (st.foe && st.foe.name) || '' : (st.me && st.me.name) || '',
+    foeMonster: defense ? (st.me && st.me.name) || '' : (st.foe && st.foe.name) || '',
+    opponentName: defense ? (st.me && st.me.owner) || '' : b.opponentName,
+  };
+}
+
+/** PVP 對手名單：其他啟用中的球員與他們的夥伴（對方由電腦操控，不會扣對方的 HP） */
+function listOpponents_(ctx) {
+  const playerId = requireGamePlayer_(ctx.actor);
+  const today = today_();
+  const players = readAll_('Players').filter((p) => p.active === 'TRUE' && p.id !== playerId);
+  const pms = readAll_('PlayerMonsters').filter((x) => x.partner === 'TRUE');
+  const monById = {};
+  readAll_('Monsters').forEach((m) => (monById[m.id] = m));
+  const challenged = readAll_('Battles').filter((b) => b.playerId === playerId && b.mode === 'pvp' && b.date === today).map((b) => b.opponentPlayerId);
+  const list = [];
+  players.forEach((p) => {
+    const pm = pms.find((x) => x.playerId === p.id);
+    const m = pm && monById[pm.monsterId];
+    if (!m) return;
+    list.push({ playerId: p.id, name: p.name, nickname: pm.nickname, monsterId: m.id, element: m.element, level: Number(pm.level) || 1, challengedToday: challenged.indexOf(p.id) >= 0 });
+  });
+  return { opponents: list };
+}
+
+function pickWeighted_(pool, rng) {
+  const weight = (m) => GAME.rarityWeight[Number(m.rarity)] || GAME.rarityWeight[1];
+  let roll = rng() * pool.reduce((s, m) => s + weight(m), 0);
+  for (let i = 0; i < pool.length; i++) {
+    roll -= weight(pool[i]);
+    if (roll < 0) return pool[i];
+  }
+  return pool[pool.length - 1];
+}
+
+/** 開始對戰：PVE 對野生怪獸，PVP 挑戰隊友的夥伴；每天次數有限 */
+function startBattle_(ctx) {
+  const a = ctx.actor;
+  const playerId = requireGamePlayer_(a);
+  const mode = ctx.payload.mode;
+  if (mode !== 'pve' && mode !== 'pvp') throw apiError_('INVALID', '對戰模式不正確。');
+  const battles = readAll_('Battles');
+  if (battles.some((b) => b.playerId === playerId && b.status === 'active')) throw apiError_('INVALID', '你有一場還沒結束的對戰，請先完成它。');
+  const pm = findOwnPM_(a, ctx.payload.playerMonsterId);
+  const monsters = readAll_('Monsters');
+  const m = monsters.find((x) => x.id === pm.monsterId);
+  if (!m) throw apiError_('NOT_FOUND', '怪獸資料不存在。');
+  const hp = currentHp_(pm, monsterStats_(m, pm.level).maxHp, Date.now());
+  if (hp <= 0) throw apiError_('INVALID', pm.nickname + ' 已經沒有體力了，請使用回復道具或等待自然回復。');
+  const today = today_();
+  const w = loadWallet_(playerId);
+  if (w.battleDate !== today) {
+    w.battleDate = today;
+    w.pveCount = 0;
+    w.pvpCount = 0;
+  }
+  const me = combatant_(pm, m, hp, playerName_(playerId));
+  let foe;
+  let opponentPlayerId = '';
+  let opponentName;
+  if (mode === 'pve') {
+    if ((Number(w.pveCount) || 0) >= BATTLE.pveDaily) throw apiError_('INVALID', '今天的野外對戰次數（' + BATTLE.pveDaily + ' 次）已用完，明天再來吧！');
+    const areaId = ctx.payload.areaId;
+    if (AREAS.indexOf(areaId) < 0) throw apiError_('INVALID', '對戰地點不正確。');
+    const area = monsters.filter((x) => x.habitat === areaId && x.inWild === 'TRUE');
+    if (area.length === 0) throw apiError_('INVALID', '這個區域目前沒有怪獸出沒。');
+    // 進化型的野生怪獸，要等你的怪獸達到牠「通常進化的等級」才會出現，避免新手一開始就遇到太強的對手
+    const unlockLevel = (x) => {
+      const prev = monsters.find((y) => y.evolvesTo === x.id);
+      return prev ? Number(prev.evolveLevel) || 1 : 1;
+    };
+    const fair = area.filter((x) => me.level >= unlockLevel(x));
+    const wild = pickWeighted_(fair.length ? fair : area, Math.random);
+    const level = Math.max(1, Math.min(GAME.maxLevel, me.level + Math.floor(Math.random() * 4) - 2));
+    foe = combatant_({ id: '', nickname: '野生的' + wild.name, level: level }, wild, undefined, '野生');
+    opponentName = '野生的' + wild.name;
+    w.pveCount = (Number(w.pveCount) || 0) + 1;
+    addSeen_(w, wild.id); // 遭遇過的怪獸記入圖鑑「看過」
+  } else {
+    if ((Number(w.pvpCount) || 0) >= BATTLE.pvpDaily) throw apiError_('INVALID', '今天的隊友挑戰次數（' + BATTLE.pvpDaily + ' 次）已用完，明天再來吧！');
+    opponentPlayerId = str_(ctx.payload.opponentPlayerId, '對手', { required: true, max: 20 });
+    if (opponentPlayerId === playerId) throw apiError_('INVALID', '不能挑戰自己。');
+    const op = readAll_('Players').find((p) => p.id === opponentPlayerId && p.active === 'TRUE');
+    if (!op) throw apiError_('NOT_FOUND', '找不到這位隊友。');
+    if (battles.some((b) => b.playerId === playerId && b.mode === 'pvp' && b.date === today && b.opponentPlayerId === opponentPlayerId)) throw apiError_('INVALID', '今天已經挑戰過 ' + op.name + ' 了，明天再來吧！');
+    const opPm = readAll_('PlayerMonsters').find((x) => x.playerId === opponentPlayerId && x.partner === 'TRUE');
+    const opM = opPm && monsters.find((x) => x.id === opPm.monsterId);
+    if (!opM) throw apiError_('INVALID', op.name + ' 還沒有夥伴，無法挑戰。');
+    foe = combatant_(opPm, opM, undefined, op.name); // 對方以滿血、電腦操控出戰，不影響對方的資料
+    opponentName = op.name;
+    w.pvpCount = (Number(w.pvpCount) || 0) + 1;
+    addSeen_(w, opM.id);
+  }
+  saveWallet_(w);
+  const now = nowIso_();
+  const st = { turn: 1, me: me, foe: foe };
+  const log = ['⚔️ 對戰開始！' + me.name + '（Lv.' + me.level + '）對上 ' + foe.name + '（Lv.' + foe.level + '）'];
+  const row = { id: newId_('B'), playerId: playerId, mode: mode, opponentPlayerId: opponentPlayerId, opponentName: opponentName, date: today, status: 'active', state: JSON.stringify(st), log: JSON.stringify(log), result: '', createdAt: now, updatedAt: now };
+  appendRow_('Battles', row);
+  return { state: gameState_(playerId) };
+}
+
+function playerName_(playerId) {
+  const p = readAll_('Players').find((x) => x.id === playerId);
+  return p ? p.name : '';
+}
+
+/** 對戰中的一個行動：攻擊、必殺技、防守、使用道具、逃跑（PVP 為投降） */
+function battleAction_(ctx) {
+  const playerId = requireGamePlayer_(ctx.actor);
+  const id = str_(ctx.payload.battleId, '對戰', { required: true, max: 40 });
+  const b = readAll_('Battles').find((x) => x.id === id);
+  if (!b) throw apiError_('NOT_FOUND', '找不到這場對戰。');
+  if (b.playerId !== playerId) throw apiError_('FORBIDDEN', '只能操作自己的對戰。');
+  if (b.status !== 'active') throw apiError_('INVALID', '這場對戰已經結束了。');
+  const st = parseJson_(b.state, null);
+  if (!st || !st.me || !st.foe) throw apiError_('SERVER', '對戰資料損毀，請聯絡教練。');
+  const w = loadWallet_(playerId);
+  const items = walletItems_(w);
+  const turn = resolveTurn_(st, b.mode, ctx.payload.action, String(ctx.payload.itemId || ''), items, Math.random);
+  if (turn.usedItem) {
+    w.items = JSON.stringify(items);
+    saveWallet_(w);
+  }
+  const log = parseJson_(b.log, []).concat(turn.log).slice(-40);
+  let result = null;
+  if (turn.ended) result = finishBattle_(b, st, turn.ended, log);
+  const row = Object.assign({}, b, {
+    status: turn.ended || 'active', state: JSON.stringify(st), log: JSON.stringify(log), result: result ? JSON.stringify(result) : '', updatedAt: nowIso_(),
+  });
+  updateRow_('Battles', b._row, row);
+  // battle：這場對戰的最新畫面（結束後 state.battle 會是 null，前端用這個顯示最後的戰況）
+  return { ended: turn.ended, result: result, battle: battleView_(row), state: gameState_(playerId) };
+}
+
+/** 對戰結束：把 HP 寫回怪獸，發放經驗值與點數 */
+function finishBattle_(b, st, status, log) {
+  const playerId = b.playerId;
+  const pm = readAll_('PlayerMonsters').find((x) => x.id === st.me.pmId && x.playerId === playerId);
+  const result = { exp: 0, points: 0, drop: '' };
+  if (pm) {
+    savePmHp_(pm, st.me.hp, st.me.maxHp);
+    const reward = status === 'fled' ? null : BATTLE.rewards[b.mode][status];
+    if (reward) {
+      result.exp = reward.exp + (status === 'won' ? st.foe.level : 0);
+      result.points = reward.points;
+      const fresh = readAll_('PlayerMonsters').find((x) => x.id === pm.id);
+      const r = applyExp_(Number(fresh.level), Number(fresh.exp), result.exp);
+      updateRow_('PlayerMonsters', fresh._row, Object.assign({}, fresh, { level: r.level, exp: r.exp }));
+      progressLog_(playerId, pm.id, result.exp, r.level, (b.mode === 'pvp' ? '隊友挑戰' : '野外對戰') + (status === 'won' ? '獲勝' : status === 'draw' ? '平手' : '落敗'));
+    }
+  }
+  const w = loadWallet_(playerId);
+  if (result.points) w.points = (Number(w.points) || 0) + result.points;
+  if (b.mode === 'pve' && status === 'won' && Math.random() < BATTLE.potionDropRate) {
+    const items = walletItems_(w);
+    if (items.potion < ITEM_MAX_HOLD) {
+      items.potion += 1;
+      w.items = JSON.stringify(items);
+      result.drop = 'potion';
+    }
+  }
+  saveWallet_(w);
+  const label = { won: '獲勝', lost: '落敗', draw: '平手', fled: '逃跑' }[status];
+  log.push(status === 'won' ? '🏆 你贏了！' : status === 'lost' ? '下次再加油！' : status === 'draw' ? '雙方平手！' : '離開了對戰。');
+  if (status !== 'fled') rewardLog_(playerId, b.mode === 'pvp' ? '隊友挑戰' : '野外對戰', label + '：對上 ' + b.opponentName + (result.drop ? '（獲得回復藥水）' : ''), result.exp, result.points, 0);
+  return result;
+}
+
 // ───────────────────────── 試算表存取 ─────────────────────────
 
 /** 一次寫入多列（大量匯入時比逐列 appendRow 快很多） */
@@ -1773,24 +2342,15 @@ function text_(s) {
 
 // ───────────────────────── 在編輯器中手動執行的函式 ─────────────────────────
 
-/** 建立 14 張工作表與欄位，並建立第一個教練帳號。可以重複執行，不會覆蓋既有資料。 */
+/** 建立所有工作表與欄位，並建立第一個教練帳號。可以重複執行，不會覆蓋既有資料。 */
 function setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.setSpreadsheetTimeZone(TZ);
   if (ss.getName() === '未命名的試算表' || ss.getName() === 'Untitled spreadsheet') ss.rename('東勢國中棒球隊｜冒險訓練筆記本 資料庫');
   Object.keys(SCHEMA).forEach((name) => {
-    const headers = SCHEMA[name];
-    let sh = ss.getSheetByName(name);
-    if (!sh) sh = ss.insertSheet(name);
-    const current = sh.getRange(1, 1, 1, headers.length).getDisplayValues()[0];
-    if (current.join('') === '') {
-      sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#fff3c4');
-      sh.setFrozenRows(1);
-    } else if (current.join('|') !== headers.join('|')) {
-      throw new Error('工作表「' + name + '」的欄位和程式設定不同，請檢查第 1 列：' + current.join(', '));
-    }
-    sh.getRange(1, 1, sh.getMaxRows(), headers.length).setNumberFormat('@');
+    if (!ss.getSheetByName(name)) ss.insertSheet(name);
   });
+  migrateSchema_();
   // 刪除預設的空白工作表
   ['工作表1', 'Sheet1'].forEach((n) => {
     const sh = ss.getSheetByName(n);
@@ -1804,6 +2364,31 @@ function setup() {
   } else {
     console.log('✅ 工作表檢查完成，已經有教練帳號，不重複建立。');
   }
+}
+
+/**
+ * 檢查每張工作表的欄位名稱：空白表寫入欄位；新版本在最後面新增的欄位會自動補上（原有資料不動）。
+ * 欄位順序和程式不同時停止，避免資料對錯欄。
+ */
+function migrateSchema_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  Object.keys(SCHEMA).forEach((name) => {
+    const sh = ss.getSheetByName(name);
+    if (!sh) return; // 還沒有的表，第一次使用時會自動建立
+    const headers = SCHEMA[name];
+    const current = sh.getRange(1, 1, 1, headers.length).getDisplayValues()[0];
+    let used = current.length;
+    while (used > 0 && current[used - 1] === '') used--;
+    if (current.slice(0, used).join('|') !== headers.slice(0, used).join('|')) {
+      throw new Error('工作表「' + name + '」的欄位和程式設定不同，請檢查第 1 列：' + current.join(', '));
+    }
+    if (used < headers.length) {
+      sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#fff3c4');
+      if (used === 0) sh.setFrozenRows(1);
+      else console.log('✅ 工作表「' + name + '」新增欄位：' + headers.slice(used).join('、'));
+    }
+    sh.getRange(1, 1, sh.getMaxRows(), headers.length).setNumberFormat('@');
+  });
 }
 
 /** 教練忘記登入碼時，在編輯器執行，新的登入碼會顯示在執行記錄 */
@@ -1854,6 +2439,7 @@ function runSelfTests() {
   const today = today_();
   const created = { players: [], users: [], articles: [], announcements: [] };
   const savedGoalSettings = PropertiesService.getScriptProperties().getProperty('goalSettings');
+  migrateSchema_(); // 更新程式後第一次執行時，補上新版本的欄位
 
   try {
     // 準備：暫時的教練、兩位球員、一位家長（直接寫入，不經過 API）
@@ -2023,7 +2609,8 @@ function runSelfTests() {
     results.push([call('login', { loginId: paAcc.loginId, code: 'NewCode2026' }).ok, '可以用新的登入碼登入', '']);
 
     // 12. 教練重設登入碼：被重設者的登入狀態立即失效
-    expectOk('教練可以重設家長的登入碼', call('adminResetCode', { userId: parentAcc.id }, tCoach, Utilities.getUuid()));
+    const parentReset = call('adminResetCode', { userId: parentAcc.id }, tCoach, Utilities.getUuid());
+    expectOk('教練可以重設家長的登入碼', parentReset);
     expectFail('重設後，舊的登入狀態失效', call('listAnnouncements', {}, tParent), 'AUTH');
     expectFail('教練不能修改球員帳號的對應資料（需從球員名單修改）', call('adminUpdateUser', { userId: paAcc.id, displayName: 'x' }, tCoach), 'INVALID');
 
@@ -2132,6 +2719,101 @@ function runSelfTests() {
     results.push([acct.ok && acct.data.code.length === 8 && call('login', { loginId: acct.data.loginId, code: acct.data.code }).ok, '教練可以為沒有帳號的球員建立帳號，球員可用新帳號登入', acct.ok ? '' : acct.error]);
     expectFail('已經有帳號的球員不能再建立一次', call('adminCreatePlayerAccount', { playerId: 'TEST-PC' }, tCoach, Utilities.getUuid()), 'INVALID');
 
+    // 16. 段考成績：教練輸入；球員只看自己、家長只看子女
+    const tPar = call('login', { loginId: parentAcc.loginId, code: parentReset.data.code }).data.token;
+    const exam = { schoolYear: 115, semester: '上', examNo: 1, grade: 8 };
+    const ex1 = call('saveExamScores', Object.assign({}, exam, { entries: [{ playerId: 'TEST-PA', scores: { 國文: 88, 數學: 92.5, 建教: '' } }, { playerId: 'TEST-PB', scores: { 英文: 70 } }] }), tCoach, Utilities.getUuid());
+    results.push([ex1.ok && ex1.data.created === 2, '教練可以一次輸入多位球員的段考成績', ex1.ok ? '' : ex1.error]);
+    const ex2 = call('saveExamScores', Object.assign({}, exam, { entries: [{ playerId: 'TEST-PA', scores: { 國文: 90 } }] }), tCoach, Utilities.getUuid());
+    const examsA = call('listExamScores', { playerId: 'TEST-PA' }, tPA);
+    results.push([ex2.ok && ex2.data.updated === 1 && examsA.ok && examsA.data.records.length === 1 && examsA.data.records[0].scores.國文 === 90, '同一次段考再次儲存只會更新，不會重複', examsA.ok ? '筆數 ' + examsA.data.records.length : examsA.error]);
+    results.push([examsA.ok && examsA.data.records[0].scores.建教 === undefined, '空白的科目不會存成 0 分', '']);
+    expectFail('不屬於該年級的科目會被拒絕（二年級沒有「社會」）', call('saveExamScores', Object.assign({}, exam, { entries: [{ playerId: 'TEST-PA', scores: { 社會: 80 } }] }), tCoach), 'INVALID');
+    expectFail('超過 100 分會被拒絕', call('saveExamScores', Object.assign({}, exam, { entries: [{ playerId: 'TEST-PA', scores: { 國文: 101 } }] }), tCoach), 'INVALID');
+    expectFail('超過一位小數會被拒絕', call('saveExamScores', Object.assign({}, exam, { entries: [{ playerId: 'TEST-PA', scores: { 國文: 85.55 } }] }), tCoach), 'INVALID');
+    expectFail('沒有輸入任何科目會被拒絕', call('saveExamScores', Object.assign({}, exam, { entries: [{ playerId: 'TEST-PA', scores: {} }] }), tCoach), 'INVALID');
+    expectFail('不存在的年級會被拒絕', call('saveExamScores', Object.assign({}, exam, { grade: 6, entries: [{ playerId: 'TEST-PA', scores: { 國文: 80 } }] }), tCoach), 'INVALID');
+    expectFail('球員不能看別人的段考成績', call('listExamScores', { playerId: 'TEST-PB' }, tPA), 'FORBIDDEN');
+    expectFail('球員不能讀全隊段考成績', call('listExamScores', {}, tPA), 'FORBIDDEN');
+    expectOk('家長可以看自己子女的段考成績', call('listExamScores', { playerId: 'TEST-PA' }, tPar));
+    expectFail('家長不能看別人的段考成績', call('listExamScores', { playerId: 'TEST-PB' }, tPar), 'FORBIDDEN');
+    const allExams = call('listExamScores', {}, tCoach);
+    results.push([allExams.ok && allExams.data.records.filter((r) => r.playerId.indexOf('TEST-') === 0).length === 2, '教練可以讀全隊段考成績', '']);
+    expectOk('教練可以刪除段考成績', call('deleteExamScore', { id: examsA.data.records[0].id }, tCoach, Utilities.getUuid()));
+
+    // 17. 道具、血量與對戰（結果由伺服器計算）
+    const rng = (v) => () => v;
+    const att = { name: 'A', element: '熱血', atk: 30, def: 20, crit: 0.08, atkUp: false, defUp: false, defending: false };
+    const plant = { name: 'B', element: '成長', atk: 30, def: 20, crit: 0.08, atkUp: false, defUp: false, defending: false };
+    const wind = Object.assign({}, plant, { element: '疾風' });
+    const dAdv = battleDamage_(att, plant, 1, rng(0.5)).dmg;
+    const dNormal = battleDamage_(att, wind, 1, rng(0.5)).dmg;
+    const dGuard = battleDamage_(att, Object.assign({}, wind, { defending: true }), 1, rng(0.5)).dmg;
+    results.push([dAdv > dNormal && dGuard < dNormal, '對戰：屬性相剋傷害較高、防守時傷害減半', dAdv + ' / ' + dNormal + ' / ' + dGuard]);
+    const hpTest = currentHp_({ hp: '10', hpAt: new Date(Date.now() - 2 * 3600000).toISOString() }, 100, Date.now());
+    results.push([hpTest === 60 && currentHp_({ hp: '' }, 100, Date.now()) === 100, '血量：空白代表滿血，受傷後每小時自然回復 25%', 'HP ' + hpTest]);
+
+    const pmA = state(tPA).playerMonsters.find((p) => p.partner);
+    results.push([pmA && pmA.hp === pmA.maxHp && pmA.maxHp > 0 && pmA.atk > 0, '遊戲資料包含怪獸的 HP 與能力值', pmA ? pmA.hp + '/' + pmA.maxHp : '']);
+    expectFail('商店不販售捕捉球', call('buyItem', { itemId: 'ball', qty: 1 }, tPA, Utilities.getUuid()), 'INVALID');
+    expectFail('購買數量不正確會被拒絕', call('buyItem', { itemId: 'potion', qty: 0 }, tPA, Utilities.getUuid()), 'INVALID');
+    const pointsBeforeBuy = state(tPA).wallet.points;
+    const buy = call('buyItem', { itemId: 'potion', qty: 2 }, tPA, Utilities.getUuid());
+    results.push([buy.ok && buy.data.state.wallet.points === pointsBeforeBuy - 30 && buy.data.state.wallet.items.potion === 2, '用點數購買道具：扣點數、增加道具', buy.ok ? '' : buy.error]);
+    expectFail('點數不足時不能購買', call('buyItem', { itemId: 'superPotion', qty: 10 }, tPA, Utilities.getUuid()), 'INVALID');
+    expectFail('HP 是滿的時不能使用回復道具', call('useItem', { itemId: 'potion', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
+    expectFail('不能對別人的怪獸使用道具', call('useItem', { itemId: 'potion', playerMonsterId: pmA.id }, tB, Utilities.getUuid()), 'FORBIDDEN');
+
+    // 讓球員 B 有夥伴，才能被挑戰
+    appendRow_('PlayerMonsters', { id: 'TEST-PMB', playerId: 'TEST-PB', monsterId: 'TEST-M3', nickname: '測試獸B', level: 3, exp: 0, partner: true, obtainedAt: now, obtainedBy: 'starter' });
+    const bt = call('startBattle', { mode: 'pve', areaId: 'field', playerMonsterId: pmA.id }, tPA, Utilities.getUuid());
+    const battle = bt.ok && bt.data.state.battle;
+    results.push([!!battle && battle.status === 'active' && battle.me.hp === pmA.hp, '可以開始野外對戰', bt.ok ? '' : bt.error]);
+    expectFail('同時只能有一場對戰', call('startBattle', { mode: 'pve', areaId: 'field', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
+    expectFail('不能操作別人的對戰', call('battleAction', { battleId: battle.id, action: 'attack' }, tB, Utilities.getUuid()), 'FORBIDDEN');
+    expectFail('對戰中不能在外面使用回復道具', call('useItem', { itemId: 'potion', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
+    expectFail('不正確的行動會被拒絕', call('battleAction', { battleId: battle.id, action: 'win' }, tPA, Utilities.getUuid()), 'INVALID');
+    const progressBefore = state(tPA).progress.length;
+    let last = null;
+    for (let i = 0; i < 40; i++) {
+      last = call('battleAction', { battleId: battle.id, action: 'attack' }, tPA, Utilities.getUuid());
+      if (!last.ok || last.data.ended) break;
+    }
+    const afterBattle = state(tPA);
+    const pmAfter = afterBattle.playerMonsters.find((p) => p.id === pmA.id);
+    const endedOk = last && last.ok && ['won', 'lost', 'draw'].indexOf(last.data.ended) >= 0;
+    results.push([endedOk && afterBattle.battle === null, '對戰會在一方倒下（或回合用完）時結束', last && last.ok ? String(last.data.ended) : last && last.error]);
+    results.push([endedOk && afterBattle.progress.length > progressBefore && (last.data.ended !== 'lost' || pmAfter.hp === 0), '對戰結束後發放經驗值，並把剩餘 HP 寫回怪獸', 'HP ' + (pmAfter && pmAfter.hp)]);
+    expectFail('已結束的對戰不能再行動', call('battleAction', { battleId: battle.id, action: 'attack' }, tPA, Utilities.getUuid()), 'INVALID');
+
+    const pmRow = () => readAll_('PlayerMonsters').find((x) => x.id === pmA.id);
+    updateRow_('PlayerMonsters', pmRow()._row, Object.assign({}, pmRow(), { hp: 0, hpAt: nowIso_() }));
+    expectFail('HP 為 0 的怪獸不能出戰', call('startBattle', { mode: 'pve', areaId: 'field', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
+    const potionsBefore = state(tPA).wallet.items.potion; // 野外對戰獲勝可能掉落藥水，所以用前後比較
+    const heal = call('useItem', { itemId: 'potion', playerMonsterId: pmA.id }, tPA, Utilities.getUuid());
+    const healed = heal.ok && heal.data.state.playerMonsters.find((p) => p.id === pmA.id);
+    results.push([healed && healed.hp > 0 && heal.data.state.wallet.items.potion === potionsBefore - 1, '回復藥水可以回復 HP，並扣掉一個道具', heal.ok ? 'HP ' + healed.hp : heal.error]);
+
+    const opp = call('listOpponents', {}, tPA);
+    results.push([opp.ok && opp.data.opponents.some((o) => o.playerId === 'TEST-PB') && !opp.data.opponents.some((o) => o.playerId === 'TEST-PA'), '隊友挑戰名單不包含自己', '']);
+    expectFail('不能挑戰自己', call('startBattle', { mode: 'pvp', opponentPlayerId: 'TEST-PA', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
+    const pvp = call('startBattle', { mode: 'pvp', opponentPlayerId: 'TEST-PB', playerMonsterId: pmA.id }, tPA, Utilities.getUuid());
+    const pvpB = pvp.ok && pvp.data.state.battle;
+    results.push([!!pvpB && pvpB.foe.hp === pvpB.foe.maxHp && pvpB.foe.owner === '測試球員TEST-PB', '隊友挑戰：對手的夥伴以滿血出戰', pvp.ok ? '' : pvp.error]);
+    const wTop = readAll_('Wallets').find((x) => x.playerId === 'TEST-PA');
+    updateRow_('Wallets', wTop._row, Object.assign({}, wTop, { points: 100 }));
+    const glove = call('buyItem', { itemId: 'powerGlove', qty: 1 }, tPA, Utilities.getUuid()).ok && call('battleAction', { battleId: pvpB.id, action: 'item', itemId: 'powerGlove' }, tPA, Utilities.getUuid());
+    results.push([glove && glove.ok && (glove.data.ended || glove.data.state.battle.me.atkUp === true), '對戰中可以使用力量手套', glove && !glove.ok ? glove.error : '']);
+    if (glove && glove.ok && !glove.data.ended) expectFail('同一場對戰不能重複使用力量手套', call('battleAction', { battleId: pvpB.id, action: 'item', itemId: 'powerGlove' }, tPA, Utilities.getUuid()), 'INVALID');
+    const giveUp = glove && glove.ok && !glove.data.ended ? call('battleAction', { battleId: pvpB.id, action: 'flee' }, tPA, Utilities.getUuid()) : { ok: true, data: { ended: 'lost' } };
+    results.push([giveUp.ok && giveUp.data.ended === 'lost', '隊友挑戰中逃跑視為投降（落敗）', giveUp.ok ? String(giveUp.data.ended) : giveUp.error]);
+    expectFail('同一位隊友一天只能挑戰一次', call('startBattle', { mode: 'pvp', opponentPlayerId: 'TEST-PB', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
+    const histB = call('getGameState', {}, tB).data.state.battleHistory;
+    results.push([histB.some((h) => h.defense && h.status === 'won'), '被挑戰的隊友會看到防守紀錄（對方投降＝防守成功）', '']);
+    const wA = readAll_('Wallets').find((x) => x.playerId === 'TEST-PA');
+    updateRow_('Wallets', wA._row, Object.assign({}, wA, { pveCount: BATTLE.pveDaily }));
+    expectFail('每天的野外對戰次數有上限', call('startBattle', { mode: 'pve', areaId: 'field', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
+
     // 6. 停用帳號立即失效
     const ub = readAll_('Users').find((u) => u.id === pbAcc.id);
     updateRow_('Users', ub._row, Object.assign({}, ub, { active: 'FALSE' }));
@@ -2164,7 +2846,7 @@ function cleanupTestData_(created) {
   [
     'DailyNotes', 'FitnessTests', 'Goals', 'Rules', 'KnowledgeArticles', 'Announcements',
     'TaskCompletions', 'Tasks', 'PlayerMonsters', 'MonsterProgress', 'Monsters', 'Wallets', 'RewardLogs', 'QuizPasses',
-    'AuditLogs', 'Users', 'Players',
+    'ExamScores', 'Battles', 'AuditLogs', 'Users', 'Players',
   ].forEach((name) => {
     const rows = readAll_(name).filter(isTest).map((r) => r._row).sort((a, b) => b - a);
     rows.forEach((row) => sheet_(name).deleteRow(row));

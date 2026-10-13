@@ -18,16 +18,32 @@
 | Tasks | 任務設定 | id | title, category, repeat, verify, 各項獎勵, active | ✅ 第四階段 |
 | TaskCompletions | 任務完成／領獎 | id | taskId + playerId + periodKey（**唯一**）, status | ✅ 第四階段 |
 | Monsters | 怪獸資料（遊戲數值；像素外觀在網頁內建） | id | dexNo, stage, evolvesTo, evolveLevel, habitat, catchRate | ✅ 第四階段 |
-| PlayerMonsters | 球員的怪獸 | id | playerId, monsterId, level, exp, partner | ✅ 第四階段 |
+| PlayerMonsters | 球員的怪獸 | id | playerId, monsterId, level, exp, partner, hp, hpAt | ✅ 第四階段（5.2 新增 hp、hpAt） |
 | MonsterProgress | 成長紀錄 | id | playerId, playerMonsterId, expGain, levelAfter, reason | ✅ 第四階段 |
-| Wallets | 點數、捕捉球、每日探索、遭遇中的怪獸 | playerId | points, balls, exploreDate, exploreCount, supplyDate, seenMonsterIds | ✅ 第四階段（自動建立） |
+| Wallets | 點數、捕捉球、每日探索、遭遇中的怪獸、道具、每日對戰次數 | playerId | points, balls, exploreDate, exploreCount, supplyDate, seenMonsterIds, items, battleDate, pveCount, pvpCount | ✅ 第四階段（自動建立；5.2 新增道具與對戰欄位） |
+| ExamScores | 段考成績 | id | playerId + schoolYear + semester + examNo（**唯一**）, grade, scores（JSON：科目→分數） | ✅ 5.2（自動建立） |
+| Battles | 對戰紀錄 | id | playerId, mode（pve/pvp）, opponentPlayerId, date, status, state（JSON）, log, result | ✅ 5.2（自動建立） |
 | RewardLogs | 獎勵獲得紀錄 | id | playerId, source, detail, exp, points, balls | ✅ 第四階段（自動建立） |
 | QuizPasses | 防護知識測驗通過紀錄 | id | playerId, articleId, date | ✅ 第四階段（自動建立） |
 | Rules | 球隊規章 | id | no, content, category, version, needsCoachReview | ✅ 第三階段 |
 | KnowledgeArticles | 防護知識 | id | category, audience, summary, details, sources, status | ✅ 第三階段 |
 | Announcements | 公告 | id | title, body, audience, pinned, status | ✅ 第三階段 |
 
-> Wallets、RewardLogs、QuizPasses 三張表在第一次用到時由 Apps Script 自動建立，不需要重新執行 setup()。
+> Wallets、RewardLogs、QuizPasses、ExamScores、Battles 在第一次用到時由 Apps Script 自動建立，不需要重新執行 setup()。
+> 新版本在既有工作表**最後面**新增的欄位（例如 PlayerMonsters 的 hp、hpAt），執行 `runSelfTests()` 或 `setup()` 時會自動補上欄位名稱，原有資料不會被修改。
+
+### 段考成績
+- 科目依年級固定（與教練提供的清單相同）：一年級 國文、數學、英文、社會、自然、建教；二年級 國文、數學、英文、地理、歷史、公民、理化、建教；三年級 國文、數學、英文、地理、歷史、公民、理化、地科生物。
+- 分數 0～100、最多一位小數；空白代表沒有這科成績（不存成 0 分）。
+- 段考成績和遊戲**完全無關**，不會影響經驗值、點數或對戰。
+
+### 血量、道具與對戰
+- 怪獸能力值（最大 HP、攻擊、防禦、速度）由等級、進化階段、稀有度與屬性計算，不另外存檔。
+- HP：空白代表滿血；受傷後每小時自然回復最大 HP 的 25%。
+- 道具只能用遊戲點數購買（回復藥水、高級回復藥、力量手套、防護護具），每種最多持有 20 個；**捕捉球不在商店販售**。
+- 每天：野外對戰（PVE）5 次、隊友挑戰（PVP）3 次，同一位隊友一天只能挑戰一次。
+- PVP 不是即時連線：被挑戰的隊友的夥伴由電腦操控、以滿血出戰，**不會扣對方的 HP**；對方會在對戰紀錄看到「防守紀錄」。
+- 每一回合的傷害、先後順序、會心一擊、逃跑是否成功、掉落道具，全部在伺服器計算；同時只能有一場進行中的對戰。
 
 ### 遊戲的防作弊設計
 - 探索遇到哪隻怪獸、捕捉是否成功，都由伺服器抽選；網頁只顯示結果。
@@ -46,6 +62,9 @@ Goals.playerId ───────────► Players.id
 TaskCompletions.taskId ───► Tasks.id
 TaskCompletions.playerId ─► Players.id
 PlayerMonsters.monsterId ─► Monsters.id
+ExamScores.playerId ──────► Players.id      （同一球員同一次段考只有一筆）
+Battles.playerId ─────────► Players.id      （挑戰者）
+Battles.opponentPlayerId ─► Players.id      （PVP 被挑戰的隊友）
 Monsters.evolvesTo ───────► Monsters.id     （進化路線）
 AuditLogs.actorId ────────► Users.id
 ```
@@ -70,6 +89,9 @@ AuditLogs.actorId ────────► Users.id
 | 編輯規章 | ✅ | ✗ | ✗ |
 | 閱讀防護知識、公告 | 全部（含草稿） | 已發布且開放給球員 | 已發布且開放給家長 |
 | 管理防護知識、公告 | ✅ | ✗ | ✗ |
+| 讀取段考成績 | 全部 | 只有自己 | 只有子女 |
+| 新增／修改／刪除段考成績 | ✅ | ✗ | ✗ |
+| 購買／使用道具、對戰 | ✗ | 只有自己的怪獸 | ✗ |
 | 修改自己的登入碼 | ✅ | ✅ | ✅ |
 | 帳號管理、操作紀錄 | ✅ | ✗ | ✗ |
 
