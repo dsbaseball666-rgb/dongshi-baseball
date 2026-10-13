@@ -80,15 +80,17 @@ const MATRIX: Record<Role, Permission[]> = {
     'announcement.read',
   ],
   parent: ['rules.read', 'knowledge.read', 'announcement.read'],
+  teacher: ['rules.read', 'announcement.read'],
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
   coach: '管理者／教練',
   player: '球員',
   parent: '家長',
+  teacher: '老師',
 };
 
-export const ALL_ROLES: Role[] = ['coach', 'player', 'parent'];
+export const ALL_ROLES: Role[] = ['coach', 'player', 'parent', 'teacher'];
 
 export function rolePermissions(role: Role): Permission[] {
   return MATRIX[role];

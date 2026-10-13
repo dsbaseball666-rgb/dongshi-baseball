@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { AuditLog, Player, Role, User } from '../../types';
+import type { AuditLog, Invite, Player, Role, User } from '../../types';
 import { useStore, useTask } from '../../store/DemoStore';
 import { ROLE_LABELS } from '../../lib/permissions';
 import { formatDateTime } from '../../lib/date';
@@ -265,7 +265,7 @@ function AccountsTab() {
         )}
       </Card>
 
-      <Card title={editingUser ? `修改帳號：${uForm.loginId}` : '新增教練或家長帳號'} icon="🔑">
+      <Card title={editingUser ? `修改帳號：${uForm.loginId}` : '新增教練、家長或老師帳號'} icon="🔑">
         <form className="form" onSubmit={createUser}>
           <div className="grid-3 tight">
             <Field label="帳號" required hint={editingUser ? '帳號建立後不能修改' : '英文小寫、數字或 _ . -，3～30 字'}>
@@ -277,13 +277,14 @@ function AccountsTab() {
             <Field label="角色">
               <select value={uForm.role} disabled={!!editingUser} onChange={(e) => setUForm({ ...uForm, role: e.target.value as Role })}>
                 <option value="parent">{ROLE_LABELS.parent}</option>
+                <option value="teacher">{ROLE_LABELS.teacher}</option>
                 <option value="coach">{ROLE_LABELS.coach}</option>
               </select>
             </Field>
           </div>
-          {uForm.role === 'parent' && (
+          {(uForm.role === 'parent' || uForm.role === 'teacher') && (
             <fieldset className="checks">
-              <legend>對應子女</legend>
+              <legend>{uForm.role === 'teacher' ? '負責的學生' : '對應子女'}</legend>
               {data.players.length === 0 && <span className="muted">請先新增球員。</span>}
               {data.players.map((p) => (
                 <label key={p.id} className="check">
@@ -334,7 +335,7 @@ function AccountsTab() {
                   <td>
                     <span className={`role-chip role-${u.role}`}>{ROLE_LABELS[u.role]}</span>
                   </td>
-                  <td>{u.role === 'player' ? playerName(u.playerId) : u.role === 'parent' ? u.childPlayerIds.map(playerName).join('、') : '—'}</td>
+                  <td>{u.role === 'player' ? playerName(u.playerId) : u.role === 'parent' || u.role === 'teacher' ? u.childPlayerIds.map(playerName).join('、') : '—'}</td>
                   <td>{u.active ? <Badge tone="green">啟用</Badge> : <Badge tone="gray">停用</Badge>}</td>
                   <td className="nowrap">
                     {u.role !== 'player' && (
@@ -374,6 +375,166 @@ function AccountsTab() {
             </tbody>
           </table>
         </div>
+      </Card>
+    </>
+  );
+}
+
+const INVITE_STATUS: Record<Invite['status'], [string, 'green' | 'gray' | 'red' | 'yellow']> = {
+  active: ['可使用', 'green'],
+  used: ['已使用', 'gray'],
+  revoked: ['已作廢', 'red'],
+  expired: ['已過期', 'yellow'],
+};
+
+/** 邀請碼：家長或老師拿到後，到網站「建立帳號」自己設定帳號和密碼 */
+function InvitesTab() {
+  const { api } = useStore();
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [invites, setInvites] = useState<Invite[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [form, setForm] = useState<{ role: 'parent' | 'teacher'; playerIds: string[]; label: string }>({ role: 'parent', playerIds: [], label: '' });
+  const [issued, setIssued] = useState<{ code: string; invite: Invite } | null>(null);
+  const [filter, setFilter] = useState('');
+  const task = useTask();
+
+  const load = useCallback(() => {
+    setLoadError(null);
+    Promise.all([api<{ players: Player[] }>('listPlayers', {}, '讀取球員名單'), api<{ invites: Invite[] }>('adminListInvites', {}, '讀取邀請碼')])
+      .then(([p, i]) => {
+        setPlayers(p.players.filter((x) => x.active));
+        setInvites(i.invites);
+      })
+      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : String(e)));
+  }, [api]);
+  useEffect(load, [load]);
+
+  if (loadError) return <Alert kind="error">{loadError}</Alert>;
+  if (!invites) return <LoadingState text="讀取邀請碼…" />;
+  const nameOf = (id: string) => players.find((p) => p.id === id)?.name ?? id;
+  const shown = players.filter((p) => !filter || p.name.includes(filter) || p.grade.includes(filter));
+  const registerUrl = `${window.location.origin}${window.location.pathname}#/register`;
+
+  return (
+    <>
+      {issued && (
+        <div className="code-box" role="status">
+          <strong>✉️ 邀請碼（{issued.invite.role === 'teacher' ? '老師' : '家長'}{issued.invite.label ? `：${issued.invite.label}` : ''}）</strong>
+          <div className="code-pair">
+            <span>
+              邀請碼：<code>{issued.code}</code>
+            </span>
+          </div>
+          <p className="small">
+            請把邀請碼和網址交給對方：<br />
+            <code>{registerUrl}</code>
+            <br />
+            對方打開網址後輸入邀請碼，就能自己設定帳號和密碼。一組邀請碼只能用一次，{new Date(issued.invite.expiresAt).toLocaleDateString('zh-TW')} 前有效。關閉後就看不到這組邀請碼了。
+          </p>
+          <button type="button" className="btn btn-sm" onClick={() => setIssued(null)}>
+            我已記下，關閉
+          </button>
+        </div>
+      )}
+      <Card title="產生邀請碼" icon="✉️">
+        <form
+          className="form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const r = await task.run(() => api<{ code: string; invite: Invite }>('adminCreateInvite', form, '產生邀請碼'));
+            if (r.ok && r.result) {
+              setIssued(r.result);
+              setForm({ ...form, playerIds: [], label: '' });
+              load();
+            }
+          }}
+        >
+          <div className="grid-2 tight">
+            <Field label="給誰">
+              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'parent' | 'teacher' })}>
+                <option value="parent">家長</option>
+                <option value="teacher">老師</option>
+              </select>
+            </Field>
+            <Field label="備註（方便自己辨認）">
+              <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} maxLength={40} placeholder={form.role === 'teacher' ? '例如：八年三班導師' : '例如：周柏竣的媽媽'} />
+            </Field>
+          </div>
+          <fieldset className="checks">
+            <legend>
+              {form.role === 'teacher' ? '這位老師負責的學生' : '這位家長的孩子'}（已選 {form.playerIds.length} 位）
+            </legend>
+            <input className="check-filter" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="搜尋姓名或年級" aria-label="搜尋學生" />
+            {shown.map((p) => (
+              <label key={p.id} className="check">
+                <input
+                  type="checkbox"
+                  checked={form.playerIds.includes(p.id)}
+                  onChange={(e) => setForm({ ...form, playerIds: e.target.checked ? [...form.playerIds, p.id] : form.playerIds.filter((x) => x !== p.id) })}
+                />
+                {p.name}
+              </label>
+            ))}
+            {form.role === 'teacher' && (
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setForm({ ...form, playerIds: Array.from(new Set([...form.playerIds, ...shown.map((p) => p.id)])) })}>
+                全選目前顯示的學生
+              </button>
+            )}
+          </fieldset>
+          <ActionFeedback action={task} />
+          <button type="submit" className="btn btn-primary" disabled={task.pending || form.playerIds.length === 0}>
+            產生邀請碼
+          </button>
+        </form>
+      </Card>
+      <Card title={`邀請碼紀錄（${invites.length}）`} icon="🧾">
+        {invites.length === 0 ? (
+          <EmptyState icon="✉️" title="還沒有產生過邀請碼" />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>對象</th>
+                  <th>備註</th>
+                  <th>學生</th>
+                  <th>狀態</th>
+                  <th>有效期限</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invites.map((i) => (
+                  <tr key={i.id}>
+                    <td>{i.role === 'teacher' ? '老師' : '家長'}</td>
+                    <td>{i.label || '—'}</td>
+                    <td>{i.playerIds.map(nameOf).join('、')}</td>
+                    <td>
+                      <Badge tone={INVITE_STATUS[i.status][1]}>{INVITE_STATUS[i.status][0]}</Badge>
+                    </td>
+                    <td className="nowrap">{formatDateTime(i.expiresAt)}</td>
+                    <td>
+                      {i.status === 'active' && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost"
+                          disabled={task.pending}
+                          onClick={async () => {
+                            if (!window.confirm('確定作廢這組邀請碼？作廢後就不能用來註冊。')) return;
+                            const r = await task.run(() => api('adminRevokeInvite', { id: i.id }, '作廢邀請碼'), '已作廢。');
+                            if (r.ok) load();
+                          }}
+                        >
+                          作廢
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
     </>
   );
@@ -599,6 +760,7 @@ function SyncTab() {
 
 const TABS = [
   { id: 'accounts', label: '👥 球員與帳號', el: <AccountsTab /> },
+  { id: 'invites', label: '✉️ 邀請碼', el: <InvitesTab /> },
   { id: 'tasks', label: '📋 任務與獎勵', el: <TasksAdmin /> },
   { id: 'monsters', label: '🐾 怪獸與圖鑑', el: <MonstersAdmin /> },
   { id: 'goals', label: '🎯 目標與進度', el: <GoalsAdmin /> },

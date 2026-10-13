@@ -211,6 +211,7 @@ textarea { resize: vertical; }
 .role-coach { background: #ffcc80; }
 .role-player { background: #b3e5fc; }
 .role-parent { background: #e1bee7; }
+.role-teacher { background: #c5e1a5; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .stars { color: #f5a400; letter-spacing: 1px; }
 
@@ -409,6 +410,32 @@ th { background: #f2f4f8; white-space: nowrap; }
 .stat-link { text-decoration: none; color: var(--ink); }
 .stat-link:hover { background: var(--sun); }
 .resume-battle { margin-top: 10px; }
+
+/* ── 親師平台 ── */
+.hub-tabs { margin-bottom: 4px; }
+.tab-count { display: inline-block; min-width: 20px; margin-left: 4px; padding: 0 5px; font-size: 0.75rem; background: var(--red); color: #fff; border-radius: 10px; }
+.hub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.chat { display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow-y: auto; padding: 4px; }
+.chat.compact { max-height: none; }
+.bubble { max-width: 88%; padding: 8px 12px; background: var(--paper); border: 3px solid var(--line); border-radius: var(--radius); align-self: flex-start; }
+.bubble.mine { align-self: flex-end; background: #e3f1ff; }
+.bubble-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; justify-content: space-between; }
+.bubble-body { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-form { margin-top: 12px; }
+.record-list, .event-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.record { padding: 8px 12px; background: var(--paper); border: 2px solid #d9dce6; border-radius: var(--radius); }
+.record p { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.record-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.event { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; background: var(--paper); border: 2px solid #d9dce6; border-radius: var(--radius); }
+.event.today { border-color: var(--red); background: #fff4f2; }
+.event.past { opacity: 0.6; }
+.event-icon { font-size: 1.4rem; line-height: 1; }
+.note-item { padding: 8px 12px; margin-bottom: 8px; background: var(--paper); border: 2px solid #d9dce6; border-radius: var(--radius); }
+.note-item summary { cursor: pointer; }
+.note-item p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.compact-list li { padding: 2px 0; }
+.check-filter { width: 100%; margin-bottom: 6px; }
+.register-link { margin-top: 8px; }
 
 /* ── 段考成績 ── */
 .exam-key { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }

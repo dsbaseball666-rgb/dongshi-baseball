@@ -78,7 +78,7 @@ function UserForm({ editing, onDone }: { editing: User | null; onDone: () => voi
         </Field>
         <Field label="角色">
           <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
-            {ALL_ROLES.map((r) => (
+            {ALL_ROLES.filter((r) => r !== 'teacher').map((r) => (
               <option key={r} value={r}>
                 {ROLE_LABELS[r]}
               </option>

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { Role } from '../types';
 import { useStore, useTask } from '../store/DemoStore';
 import { ROLE_LABELS } from '../lib/permissions';
@@ -9,6 +10,7 @@ const ROLE_DESC: Record<Role, string> = {
   coach: '管理球員、任務、規章、知識庫、公告，並查看筆記與體能資料。',
   player: '寫每日筆記、設定目標、查看自己的體能紀錄、執行任務並培養怪獸。',
   parent: '閱讀球隊規章、防護知識與開放給家長的公告。',
+  teacher: '在親師平台與家長、教練溝通，記錄學生在校表現。',
 };
 
 function CloudLogin() {
@@ -19,7 +21,7 @@ function CloudLogin() {
   return (
     <section className="login-group cloud-login">
       <h2>☁️ 雲端登入</h2>
-      <p className="muted">使用教練發給你的帳號與登入碼。資料會儲存在球隊的 Google 試算表。</p>
+      <p className="muted">使用你的帳號與登入碼（密碼）。資料會儲存在球隊的 Google 試算表。</p>
       {loadWarning && <Alert kind="warn">{loadWarning}</Alert>}
       <form
         className="form"
@@ -42,6 +44,9 @@ function CloudLogin() {
         </button>
       </form>
       <p className="muted small">忘記登入碼請找教練重設。連續輸入錯誤 5 次會暫停登入 10 分鐘。</p>
+      <Link to="/register" className="btn btn-gold register-link">
+        ✉️ 我是家長／老師，有邀請碼 → 建立帳號
+      </Link>
     </section>
   );
 }

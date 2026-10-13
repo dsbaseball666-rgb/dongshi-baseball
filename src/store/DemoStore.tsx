@@ -26,6 +26,8 @@ interface StoreValue {
   loadWarning: string | null;
   login: (userId: string) => void;
   cloudLogin: (loginId: string, code: string) => Promise<void>;
+  /** 家長／老師用邀請碼建立帳號（成功後直接登入） */
+  cloudRegister: (input: { inviteCode: string; loginId: string; displayName: string; password: string }) => Promise<void>;
   /** 修改自己的登入碼（舊的登入狀態會失效，改用伺服器發的新 token） */
   changeMyCode: (oldCode: string, newCode: string) => Promise<void>;
   logout: () => void;
@@ -204,6 +206,14 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     setSession(s);
   }, []);
 
+  const cloudRegister = useCallback(async (input: { inviteCode: string; loginId: string; displayName: string; password: string }) => {
+    const r = await callApi<{ token: string; user: User }>('register', input);
+    const s: Session = { mode: 'cloud', token: r.token, user: r.user };
+    writeSession(s);
+    setLoadWarning(null);
+    setSession(s);
+  }, []);
+
   const changeMyCode = useCallback(
     async (oldCode: string, newCode: string) => {
       const s = sessionRef.current;
@@ -269,6 +279,7 @@ export function DemoStoreProvider({ children }: { children: ReactNode }) {
     loadWarning,
     login,
     cloudLogin,
+    cloudRegister,
     changeMyCode,
     logout,
     perform,

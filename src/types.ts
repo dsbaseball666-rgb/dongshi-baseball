@@ -1,6 +1,6 @@
 // 資料型別：欄位設計對應第二階段要建立的 Google 試算表工作表
 
-export type Role = 'coach' | 'player' | 'parent';
+export type Role = 'coach' | 'player' | 'parent' | 'teacher';
 
 /** Users 工作表：使用者及角色對應 */
 export interface User {
@@ -250,6 +250,62 @@ export interface Opponent {
   element: MonsterElement;
   level: number;
   challengedToday: boolean;
+}
+
+/** Invites 工作表：教練產生的邀請碼（邀請碼本身只在產生時顯示一次） */
+export interface Invite {
+  id: string;
+  role: 'parent' | 'teacher';
+  playerIds: string[];
+  label: string;
+  status: 'active' | 'used' | 'revoked' | 'expired';
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string;
+  usedBy: string;
+  usedAt: string;
+}
+
+/** Messages 工作表：三方平台溝通區（學生本人看不到） */
+export interface HubMessage {
+  id: string;
+  playerId: string;
+  authorId: string;
+  authorName: string;
+  authorRole: Role;
+  body: string;
+  createdAt: string;
+}
+
+/** SchoolRecords 工作表：在校表現紀錄（老師、教練填寫） */
+export interface SchoolRecord {
+  id: string;
+  playerId: string;
+  date: string;
+  category: string;
+  rating: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  authorRole: Role;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Events 工作表：行程（playerIds 空白＝全隊） */
+export interface TeamEvent {
+  id: string;
+  title: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  category: string;
+  playerIds: string[];
+  note: string;
+  createdById: string;
+  createdBy: string;
+  updatedAt: string;
 }
 
 /** ExamScores 工作表：段考成績（同一球員同一次段考一筆） */

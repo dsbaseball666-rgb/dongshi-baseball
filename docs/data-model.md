@@ -22,6 +22,10 @@
 | MonsterProgress | 成長紀錄 | id | playerId, playerMonsterId, expGain, levelAfter, reason | ✅ 第四階段 |
 | Wallets | 點數、捕捉球、每日探索、遭遇中的怪獸、道具、每日對戰次數 | playerId | points, balls, exploreDate, exploreCount, supplyDate, seenMonsterIds, items, battleDate, pveCount, pvpCount | ✅ 第四階段（自動建立；5.2 新增道具與對戰欄位） |
 | ExamScores | 段考成績 | id | playerId + schoolYear + semester + examNo（**唯一**）, grade, scores（JSON：科目→分數） | ✅ 5.2（自動建立） |
+| Invites | 家長／老師邀請碼（只存加鹽雜湊） | id | role, playerIds, status（active/used/revoked）, expiresAt | ✅ 5.4（自動建立） |
+| Messages | 親師平台溝通區 | id | playerId, authorId, authorRole, body | ✅ 5.4（自動建立） |
+| SchoolRecords | 在校表現紀錄 | id | playerId, date, category, rating, content, authorId | ✅ 5.4（自動建立） |
+| Events | 行程 | id | title, date, startTime, endTime, category, playerIds（空白＝全隊） | ✅ 5.4（自動建立） |
 | Battles | 對戰紀錄 | id | playerId, mode（pve/pvp）, opponentPlayerId, date, status, state（JSON）, log, result | ✅ 5.2（自動建立） |
 | RewardLogs | 獎勵獲得紀錄 | id | playerId, source, detail, exp, points, balls | ✅ 第四階段（自動建立） |
 | QuizPasses | 防護知識測驗通過紀錄 | id | playerId, articleId, date | ✅ 第四階段（自動建立） |
@@ -89,7 +93,12 @@ AuditLogs.actorId ────────► Users.id
 | 編輯規章 | ✅ | ✗ | ✗ |
 | 閱讀防護知識、公告 | 全部（含草稿） | 已發布且開放給球員 | 已發布且開放給家長 |
 | 管理防護知識、公告 | ✅ | ✗ | ✗ |
-| 讀取段考成績 | 全部 | 只有自己 | 只有子女 |
+| 讀取段考成績 | 全部 | 只有自己 | 只有子女（老師：負責的學生） |
+| 親師平台總覽、溝通區留言 | 全部 | ✗ | 只有子女（老師：負責的學生） |
+| 在校表現紀錄（新增／修改） | ✅ | ✗ | ✗（老師：負責的學生，只能改自己寫的） |
+| 行程（新增／修改） | 全隊或指定學生 | ✗ | ✗（老師：只能給負責的學生） |
+| 讀取行程 | 全部 | 全隊＋自己 | 全隊＋子女（老師：全隊＋負責的學生） |
+| 產生／作廢邀請碼 | ✅ | ✗ | ✗ |
 | 新增／修改／刪除段考成績 | ✅ | ✗ | ✗ |
 | 購買／使用道具、對戰 | ✗ | 只有自己的怪獸 | ✗ |
 | 修改自己的登入碼 | ✅ | ✅ | ✅ |

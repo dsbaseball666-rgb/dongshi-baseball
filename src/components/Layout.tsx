@@ -1,27 +1,28 @@
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import type { Role } from '../types';
 import { useStore } from '../store/DemoStore';
 import { ROLE_LABELS } from '../lib/permissions';
 import { CLOUD_ONLY_PATHS, CLOUD_READY_PATHS } from '../config';
-import { Alert } from './UI';
+import { Alert, LoadingState } from './UI';
 
 export const NAV_ITEMS: { to: string; label: string; icon: string; roles: Role[] }[] = [
-  { to: '/', label: '冒險基地', icon: '🏕️', roles: ['coach', 'player', 'parent'] },
+  { to: '/', label: '冒險基地', icon: '🏕️', roles: ['coach', 'player', 'parent', 'teacher'] },
+  { to: '/hub', label: '親師平台', icon: '🤝', roles: ['coach', 'parent', 'teacher'] },
   { to: '/notes', label: '棒球筆記', icon: '📒', roles: ['coach', 'player'] },
   { to: '/goals', label: '目標進度', icon: '🎯', roles: ['coach', 'player'] },
   { to: '/fitness', label: '體能檢測', icon: '💪', roles: ['coach', 'player'] },
-  { to: '/exams', label: '段考成績', icon: '📝', roles: ['coach', 'player', 'parent'] },
+  { to: '/exams', label: '段考成績', icon: '📝', roles: ['coach', 'player', 'parent', 'teacher'] },
   { to: '/training', label: '怪獸訓練', icon: '🥚', roles: ['player'] },
   { to: '/explore', label: '野外探索', icon: '🌿', roles: ['player'] },
   { to: '/battle', label: '對戰競技場', icon: '⚔️', roles: ['player'] },
   { to: '/shop', label: '道具商店', icon: '🎒', roles: ['player'] },
   { to: '/dex', label: '怪獸圖鑑', icon: '📖', roles: ['coach', 'player'] },
-  { to: '/rules', label: '球隊規章', icon: '📜', roles: ['coach', 'player', 'parent'] },
+  { to: '/rules', label: '球隊規章', icon: '📜', roles: ['coach', 'player', 'parent', 'teacher'] },
   { to: '/knowledge', label: '防護知識', icon: '⛑️', roles: ['coach', 'player', 'parent'] },
-  { to: '/announcements', label: '球隊公告', icon: '📣', roles: ['coach', 'player', 'parent'] },
+  { to: '/announcements', label: '球隊公告', icon: '📣', roles: ['coach', 'player', 'parent', 'teacher'] },
   { to: '/admin', label: '教練後台', icon: '🛠️', roles: ['coach'] },
-  { to: '/account', label: '我的帳號', icon: '🔑', roles: ['coach', 'player', 'parent'] },
+  { to: '/account', label: '我的帳號', icon: '🔑', roles: ['coach', 'player', 'parent', 'teacher'] },
 ];
 
 export function Layout() {
@@ -78,7 +79,9 @@ export function Layout() {
         </nav>
         <main className="main" key={location.pathname}>
           {loadWarning && <Alert kind="warn">{loadWarning}</Alert>}
-          <Outlet />
+          <Suspense fallback={<LoadingState text="載入頁面…" />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

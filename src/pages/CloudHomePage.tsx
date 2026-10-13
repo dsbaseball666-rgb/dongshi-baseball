@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 import { useStore } from '../store/DemoStore';
 import { useAnnouncements, useNotes } from '../sources/hooks';
 import { ROLE_LABELS } from '../lib/permissions';
-import { formatDate, formatDateTime, todayStr } from '../lib/date';
+import { addDays, formatDate, formatDateTime, todayStr } from '../lib/date';
+import { EVENT_ICONS, formatEventTime, useEvents } from '../sources/hub';
 import { Alert, Badge, Card, EmptyState, LoadingState, ProgressBar } from '../components/UI';
 import { MonsterSprite } from '../components/MonsterSprite';
 import { TaskBoard } from '../components/TaskBoard';
@@ -102,6 +103,37 @@ function TodayNote({ playerId }: { playerId: string }) {
   );
 }
 
+/** 最近 7 天的行程（全隊與自己相關的） */
+function UpcomingEvents() {
+  const { user } = useStore();
+  const { events, loading, error } = useEvents();
+  const today = todayStr();
+  const list = events.filter((e) => e.date >= today && e.date <= addDays(today, 7)).slice(0, 5);
+  return (
+    <Card title="最近行程（7 天內）" icon="📅" actions={user?.role !== 'player' ? <Link to="/hub" className="btn btn-sm btn-ghost">親師平台 →</Link> : undefined}>
+      {loading ? (
+        <LoadingState />
+      ) : error ? (
+        <Alert kind="error">{error}</Alert>
+      ) : list.length === 0 ? (
+        <EmptyState icon="📅" title="7 天內沒有行程" />
+      ) : (
+        <ul className="plain-list">
+          {list.map((e) => (
+            <li key={e.id}>
+              {EVENT_ICONS[e.category] ?? '📌'} <strong>{e.title}</strong> {e.date === today && <Badge tone="red">今天</Badge>}
+              <div className="muted small">
+                {formatEventTime(e)}
+                {e.location && `・${e.location}`}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 function LatestAnnouncements() {
   const { user } = useStore();
   const { announcements, loading, error } = useAnnouncements();
@@ -134,8 +166,10 @@ function LatestAnnouncements() {
 export default function CloudHomePage() {
   const { user } = useStore();
   if (!user) return null;
+  const grownUp = user.role !== 'player';
   const links = [
-    ...(user.role !== 'parent'
+    ...(grownUp ? [{ to: '/hub', icon: '🤝', label: '親師平台' }] : []),
+    ...(user.role === 'coach' || user.role === 'player'
       ? [
           { to: '/notes', icon: '📒', label: '每日筆記' },
           { to: '/goals', icon: '🎯', label: '目標進度' },
@@ -151,9 +185,9 @@ export default function CloudHomePage() {
           { to: '/shop', icon: '🎒', label: '道具商店' },
         ]
       : []),
-    ...(user.role !== 'parent' ? [{ to: '/dex', icon: '📖', label: '怪獸圖鑑' }] : []),
+    ...(user.role === 'coach' || user.role === 'player' ? [{ to: '/dex', icon: '📖', label: '怪獸圖鑑' }] : []),
     { to: '/rules', icon: '📜', label: '球隊規章' },
-    { to: '/knowledge', icon: '⛑️', label: '防護知識' },
+    ...(user.role !== 'teacher' ? [{ to: '/knowledge', icon: '⛑️', label: '防護知識' }] : []),
     { to: '/announcements', icon: '📣', label: '球隊公告' },
     ...(user.role === 'coach' ? [{ to: '/admin', icon: '🛠️', label: '教練後台' }] : []),
     { to: '/account', icon: '🔑', label: '我的帳號' },
@@ -167,11 +201,17 @@ export default function CloudHomePage() {
           <p>
             <span className={`role-chip role-${user.role}`}>{ROLE_LABELS[user.role]}</span> 帳號：{user.loginId}
           </p>
-          {user.role === 'parent' && <p className="muted small">家長可閱讀球隊規章、防護知識、開放給家長的公告，以及自己孩子的段考成績；無法修改球員的體能資料、遊戲獎勵或管理設定。</p>}
+          {grownUp && user.role !== 'coach' && (
+            <Link to="/hub" className="btn btn-primary">
+              🤝 進入親師平台：{user.role === 'parent' ? '看孩子的溝通、學習、課業與行程' : '和家長、教練溝通，記錄在校表現'}
+            </Link>
+          )}
+          {user.role === 'parent' && <p className="muted small">家長可以在親師平台和老師、教練溝通，查看孩子的學習狀況、課業與行程，也可閱讀球隊規章、防護知識與開放給家長的公告；無法修改球員的體能資料、遊戲獎勵或管理設定。</p>}
         </div>
       </section>
       {user.role === 'player' && user.playerId && <PlayerGame />}
       <div className="grid-2">
+        <UpcomingEvents />
         {user.role === 'player' && user.playerId && <TodayNote playerId={user.playerId} />}
         <LatestAnnouncements />
       </div>

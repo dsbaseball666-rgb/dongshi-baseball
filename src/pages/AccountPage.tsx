@@ -54,7 +54,7 @@ export default function AccountPage() {
           </li>
           {user.role !== 'coach' && (
             <li className="row-between">
-              <span className="muted">{user.role === 'parent' ? '對應子女' : '對應球員'}</span>
+              <span className="muted">{user.role === 'parent' ? '對應子女' : user.role === 'teacher' ? '負責的學生' : '對應球員'}</span>
               <span>{players.map((p) => p.name).join('、') || '—'}</span>
             </li>
           )}

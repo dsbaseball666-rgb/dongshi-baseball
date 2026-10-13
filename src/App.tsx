@@ -1,28 +1,32 @@
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import type { Role } from './types';
 import { useStore } from './store/DemoStore';
 import { Layout } from './components/Layout';
 import { Card, EmptyState, LoadingState, NoAccess, PageHeader } from './components/UI';
-import CloudHomePage from './pages/CloudHomePage';
-import AccountPage from './pages/AccountPage';
-import CloudAdminPage from './pages/admin/CloudAdminPage';
-import LoginPage from './pages/LoginPage';
-import HomePage from './pages/HomePage';
-import NotesPage from './pages/NotesPage';
-import GoalsPage from './pages/GoalsPage';
-import FitnessPage from './pages/FitnessPage';
-import TrainingPage from './pages/TrainingPage';
-import ExplorePage from './pages/ExplorePage';
-import ExamsPage from './pages/ExamsPage';
-import BattlePage from './pages/BattlePage';
-import ShopPage from './pages/ShopPage';
-import DexPage from './pages/DexPage';
-import RulesPage from './pages/RulesPage';
-import KnowledgePage from './pages/KnowledgePage';
-import KnowledgeArticlePage from './pages/KnowledgeArticlePage';
-import AnnouncementsPage from './pages/AnnouncementsPage';
-import AdminPage from './pages/admin/AdminPage';
+
+// 各頁面在第一次打開時才下載（手機第一次開網站時要下載的檔案比較小、比較快）
+const CloudHomePage = lazy(() => import('./pages/CloudHomePage'));
+const AccountPage = lazy(() => import('./pages/AccountPage'));
+const CloudAdminPage = lazy(() => import('./pages/admin/CloudAdminPage'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const RegisterPage = lazy(() => import('./pages/RegisterPage'));
+const HomePage = lazy(() => import('./pages/HomePage'));
+const NotesPage = lazy(() => import('./pages/NotesPage'));
+const GoalsPage = lazy(() => import('./pages/GoalsPage'));
+const FitnessPage = lazy(() => import('./pages/FitnessPage'));
+const TrainingPage = lazy(() => import('./pages/TrainingPage'));
+const ExplorePage = lazy(() => import('./pages/ExplorePage'));
+const ExamsPage = lazy(() => import('./pages/ExamsPage'));
+const HubPage = lazy(() => import('./pages/HubPage'));
+const BattlePage = lazy(() => import('./pages/BattlePage'));
+const ShopPage = lazy(() => import('./pages/ShopPage'));
+const DexPage = lazy(() => import('./pages/DexPage'));
+const RulesPage = lazy(() => import('./pages/RulesPage'));
+const KnowledgePage = lazy(() => import('./pages/KnowledgePage'));
+const KnowledgeArticlePage = lazy(() => import('./pages/KnowledgeArticlePage'));
+const AnnouncementsPage = lazy(() => import('./pages/AnnouncementsPage'));
+const AdminPage = lazy(() => import('./pages/admin/AdminPage'));
 
 function Allow({ roles, children, cloud = false, cloudOnly = false }: { roles: Role[]; children: ReactNode; cloud?: boolean; cloudOnly?: boolean }) {
   const { user, mode } = useStore();
@@ -52,7 +56,7 @@ function CloudOnly() {
     <div className="page">
       <PageHeader icon="☁️" title="這個功能需要雲端帳號" />
       <Card>
-        <EmptyState icon="☁️" title="段考成績、對戰與道具商店只在雲端模式提供" hint="示範模式沒有這些功能。請登出後用教練給你的帳號與登入碼登入。" />
+        <EmptyState icon="☁️" title="段考成績、親師平台、對戰與道具商店只在雲端模式提供" hint="示範模式沒有這些功能。請登出後用你的帳號與登入碼登入。" />
       </Card>
     </div>
   );
@@ -68,7 +72,14 @@ function Admin() {
   return mode === 'cloud' ? <CloudAdminPage /> : <AdminPage />;
 }
 
-const ALL: Role[] = ['coach', 'player', 'parent'];
+const ALL: Role[] = ['coach', 'player', 'parent', 'teacher'];
+const GROWN_UPS: Role[] = ['coach', 'parent', 'teacher'];
+
+const pageLoading = (
+  <div className="boot">
+    <LoadingState text="載入頁面…" />
+  </div>
+);
 
 export default function App() {
   const { ready, user } = useStore();
@@ -80,27 +91,31 @@ export default function App() {
     );
   }
   return (
-    <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route element={user ? <Layout /> : <Navigate to="/login" replace />}>
-        <Route index element={<Home />} />
-        <Route path="notes" element={<Allow cloud roles={['coach', 'player']}><NotesPage /></Allow>} />
-        <Route path="goals" element={<Allow cloud roles={['coach', 'player']}><GoalsPage /></Allow>} />
-        <Route path="fitness" element={<Allow cloud roles={['coach', 'player']}><FitnessPage /></Allow>} />
-        <Route path="exams" element={<Allow cloud cloudOnly roles={ALL}><ExamsPage /></Allow>} />
-        <Route path="training" element={<Allow cloud roles={['player']}><TrainingPage /></Allow>} />
-        <Route path="explore" element={<Allow cloud roles={['player']}><ExplorePage /></Allow>} />
-        <Route path="battle" element={<Allow cloud cloudOnly roles={['player']}><BattlePage /></Allow>} />
-        <Route path="shop" element={<Allow cloud cloudOnly roles={['player']}><ShopPage /></Allow>} />
-        <Route path="dex" element={<Allow cloud roles={['coach', 'player']}><DexPage /></Allow>} />
-        <Route path="rules" element={<Allow cloud roles={ALL}><RulesPage /></Allow>} />
-        <Route path="knowledge" element={<Allow cloud roles={ALL}><KnowledgePage /></Allow>} />
-        <Route path="knowledge/:id" element={<Allow cloud roles={ALL}><KnowledgeArticlePage /></Allow>} />
-        <Route path="announcements" element={<Allow cloud roles={ALL}><AnnouncementsPage /></Allow>} />
-        <Route path="account" element={<Allow cloud roles={ALL}><AccountPage /></Allow>} />
-        <Route path="admin" element={<Allow cloud roles={['coach']}><Admin /></Allow>} />
-        <Route path="*" element={<NoAccess text="找不到這個頁面。" />} />
-      </Route>
-    </Routes>
+    <Suspense fallback={pageLoading}>
+      <Routes>
+        <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
+        <Route path="/register" element={user ? <Navigate to="/" replace /> : <RegisterPage />} />
+        <Route element={user ? <Layout /> : <Navigate to="/login" replace />}>
+          <Route index element={<Home />} />
+          <Route path="hub" element={<Allow cloud cloudOnly roles={GROWN_UPS}><HubPage /></Allow>} />
+          <Route path="notes" element={<Allow cloud roles={['coach', 'player']}><NotesPage /></Allow>} />
+          <Route path="goals" element={<Allow cloud roles={['coach', 'player']}><GoalsPage /></Allow>} />
+          <Route path="fitness" element={<Allow cloud roles={['coach', 'player']}><FitnessPage /></Allow>} />
+          <Route path="exams" element={<Allow cloud cloudOnly roles={ALL}><ExamsPage /></Allow>} />
+          <Route path="training" element={<Allow cloud roles={['player']}><TrainingPage /></Allow>} />
+          <Route path="explore" element={<Allow cloud roles={['player']}><ExplorePage /></Allow>} />
+          <Route path="battle" element={<Allow cloud cloudOnly roles={['player']}><BattlePage /></Allow>} />
+          <Route path="shop" element={<Allow cloud cloudOnly roles={['player']}><ShopPage /></Allow>} />
+          <Route path="dex" element={<Allow cloud roles={['coach', 'player']}><DexPage /></Allow>} />
+          <Route path="rules" element={<Allow cloud roles={ALL}><RulesPage /></Allow>} />
+          <Route path="knowledge" element={<Allow cloud roles={ALL}><KnowledgePage /></Allow>} />
+          <Route path="knowledge/:id" element={<Allow cloud roles={ALL}><KnowledgeArticlePage /></Allow>} />
+          <Route path="announcements" element={<Allow cloud roles={ALL}><AnnouncementsPage /></Allow>} />
+          <Route path="account" element={<Allow cloud roles={ALL}><AccountPage /></Allow>} />
+          <Route path="admin" element={<Allow cloud roles={['coach']}><Admin /></Allow>} />
+          <Route path="*" element={<NoAccess text="找不到這個頁面。" />} />
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }
