@@ -89,7 +89,7 @@ export interface GoalTermSetting {
   defaultDays: number;
 }
 
-export type FitnessItemKey = 'pushup' | 'situp' | 'jump' | 'run1500' | 'run150' | 'grip';
+export type FitnessItemKey = 'pushup' | 'situp' | 'jump' | 'run1500' | 'run150' | 'grip' | 'swing' | 'pitch';
 
 /** FitnessTests 工作表：體能檢測。跑步時間一律以「秒」儲存 */
 export interface FitnessTest {

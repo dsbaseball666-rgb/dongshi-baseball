@@ -4,7 +4,7 @@
 
 import { createGasEnv } from './mock-env.mjs';
 
-const { gas, sheets, spreadsheet, logs } = createGasEnv();
+const { gas, sheets, spreadsheet, logs, addExternal } = createGasEnv();
 let failed = false;
 try {
   gas.setup();
@@ -26,6 +26,38 @@ try {
     .filter(([, c]) => c > 0);
   if (leftovers.length) throw new Error('測試資料沒有清乾淨：' + JSON.stringify(leftovers));
   if (gas.readAll_('Users').length !== 1) throw new Error('測試帳號沒有清乾淨');
+
+  // 完整流程：用假的舊檔案（虛構姓名）測試「預覽 → 匯入 → 再匯入一次不重複」
+  const coachCode = logs.join('\n').match(/登入碼：([A-Z0-9]+)/)[1];
+  const call = (action, payload, token) => JSON.parse(gas.handle_({ action, payload, token, requestId: String(Math.random()) }));
+  const token = call('login', { loginId: 'coach', code: coachCode }).data.token;
+  const LEGACY_ID = 'LegacyFakeSheet0123456789abcdef';
+  addExternal(LEGACY_ID, '假的舊檔案', {
+    紀錄: [
+      ['記錄ID', '人員ID', '姓名', '檢測項目', '日期', '數值', '單位', '細節', '建立時間'],
+      ['a1', 'x', '王小明', 'run1500', '2026/8/4', '388.1', '秒', '{"term":"115上"}', ''],
+      ['a2', 'x', '王小明', 'longjump', '2026-09-04', '225', '公分', '', ''],
+      ['a3', 'y', '李小華', 'pitch', '2026-09-08', '97.6', 'km/h', '', ''],
+      ['a4', 'y', '李小華', 'grip', '2026-09-04', '31.3', '公斤', '', ''],
+      ['a5', 'y', '李小華', 'pushup', '2026-09-04', '999', '次', '', ''],
+    ],
+    名單: [['姓名', '建立時間', '人員ID'], ['王小明', '', 'x'], ['李小華', '', 'y'], ['陳小美', '', 'z']],
+  });
+  const url = `https://docs.google.com/spreadsheets/d/${LEGACY_ID}/edit`;
+  const pv = call('adminPreviewLegacyImport', { sheetUrl: url }, token);
+  if (!pv.ok || pv.data.preview.importable !== 4 || pv.data.preview.newPlayers !== 3 || pv.data.preview.skippedCount !== 1) throw new Error('匯入預覽結果不正確：' + JSON.stringify(pv));
+  if (gas.readAll_('FitnessTests').length !== 0) throw new Error('預覽不應寫入資料');
+  const run1 = call('adminRunLegacyImport', { sheetUrl: url }, token);
+  if (!run1.ok || run1.data.imported !== 4 || run1.data.newPlayers !== 3) throw new Error('第一次匯入結果不正確：' + JSON.stringify(run1));
+  const run2 = call('adminRunLegacyImport', { sheetUrl: url }, token);
+  if (!run2.ok || run2.data.imported !== 0 || run2.data.duplicates !== 4 || run2.data.newPlayers !== 0) throw new Error('重複匯入應該全部略過：' + JSON.stringify(run2));
+  const ming = gas.readAll_('Players').find((p) => p.name === '王小明');
+  const mingTests = gas.readAll_('FitnessTests').filter((f) => f.playerId === ming.id);
+  if (mingTests.length !== 2 || !mingTests.some((f) => f.item === 'jump' && f.date === '2026-09-04')) throw new Error('匯入的紀錄沒有對到正確的球員');
+  const acct = call('adminCreatePlayerAccount', { playerId: ming.id }, token);
+  if (!acct.ok || !call('login', { loginId: acct.data.loginId, code: acct.data.code }).ok) throw new Error('匯入的球員無法建立帳號');
+  if (call('adminPreviewLegacyImport', { sheetUrl: 'https://docs.google.com/spreadsheets/d/NotExisting0123456789xyz/edit' }, token).code !== 'INVALID') throw new Error('打不開的檔案應回報錯誤');
+  logs.push('✅ PASS（本機）舊資料匯入完整流程：預覽不寫入、匯入 4 筆、新增 3 位球員、重複匯入不重複、可建立帳號');
 } catch (e) {
   failed = true;
   logs.push('❌ ' + (e && e.stack ? e.stack : e));

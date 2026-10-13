@@ -5,3 +5,9 @@ dist
 *.log
 # Claude 的本機設定，不需要上傳
 .claude/
+# 學生資料檔案（姓名、成績）絕對不上傳到公開的 GitHub
+*.xlsx
+*.xls
+*.csv
+*.ods
+匯入資料/

@@ -16,8 +16,21 @@ const TEST_ACCOUNTS = [
   { loginId: 'test-parent', role: 'parent', displayName: '測試家長', code: 'TESTPARENT', childOf: 'test-player' },
 ];
 
-const { gas } = createGasEnv();
+const { gas, addExternal } = createGasEnv();
 gas.setup();
+// 假的舊體能檢測檔案（虛構姓名），網址：https://docs.google.com/spreadsheets/d/MockLegacySheet0123456789abcdef/edit
+addExternal('MockLegacySheet0123456789abcdef', '假的舊體能檢測檔案', {
+  紀錄: [
+    ['記錄ID', '人員ID', '姓名', '檢測項目', '日期', '數值', '單位', '細節', '建立時間'],
+    ['m1', 'x', '測試球員甲', 'run1500', '2026/8/4', '388.1', '秒', '{"term":"115上"}', ''],
+    ['m2', 'x', '測試球員甲', 'run1500', '2026-10-05', '372.4', '秒', '{"term":"115上"}', ''],
+    ['m3', 'y', '王小明', 'longjump', '2026-09-04', '225', '公分', '', ''],
+    ['m4', 'y', '王小明', 'pitch', '2026-09-08', '97.6', 'km/h', '', ''],
+    ['m5', 'z', '李小華', 'swing', '2026-09-08', '89.9', 'km/h', '', ''],
+    ['m6', 'z', '李小華', 'pushup', '2026-09-04', '999', '次', '', ''],
+  ],
+  名單: [['姓名', '建立時間', '人員ID'], ['測試球員甲', '', 'x'], ['王小明', '', 'y'], ['李小華', '', 'z']],
+});
 const now = new Date().toISOString();
 const playerIds = {};
 TEST_ACCOUNTS.forEach((a, i) => {

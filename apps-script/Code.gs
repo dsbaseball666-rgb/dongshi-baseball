@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.0.0';
+const API_VERSION = '5.1.0';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -69,7 +69,12 @@ const FITNESS_ITEMS = {
   run1500: { label: '1500 公尺', unit: '秒', min: 180, max: 1800 },
   run150: { label: '150 公尺', unit: '秒', min: 12, max: 90 },
   grip: { label: '慣用手握力', unit: '公斤', min: 1, max: 100 },
+  swing: { label: '揮棒速度', unit: 'km/h', min: 20, max: 200 },
+  pitch: { label: '投球球速', unit: 'km/h', min: 20, max: 180 },
 };
+
+// 舊體能檢測系統的項目代碼 → 本系統項目
+const LEGACY_ITEM_MAP = { run1500: 'run1500', longjump: 'jump', pushup: 'pushup', situp: 'situp', grip: 'grip', swing: 'swing', pitch: 'pitch', run150: 'run150' };
 
 const GOAL_TERMS = ['short', 'mid', 'long'];
 const GOAL_STATUSES = ['active', 'completed', 'not_met', 'cancelled'];
@@ -159,6 +164,10 @@ const ROUTES = {
   adminSetPlayerActive: { roles: COACH, write: true, fn: adminSetPlayerActive_ },
   adminSetUserActive: { roles: COACH, write: true, fn: adminSetUserActive_ },
   listAudit: { roles: COACH, fn: listAudit_ },
+  adminCreatePlayerAccount: { roles: COACH, write: true, fn: adminCreatePlayerAccount_ },
+  // 匯入舊體能檢測資料（預覽不寫入；確認後才寫入）
+  adminPreviewLegacyImport: { roles: COACH, fn: (ctx) => ({ preview: summarizeLegacyPlan_(planLegacyImportFromUrl_(ctx.payload.sheetUrl)) }) },
+  adminRunLegacyImport: { roles: COACH, write: true, fn: adminRunLegacyImport_ },
 };
 
 function doGet() {
@@ -1445,7 +1454,176 @@ function requireActivePlayer_(playerId) {
   if (!p || p.active !== 'TRUE') throw apiError_('FORBIDDEN', '此球員已停用。');
 }
 
+/** 為已經在名單上、但還沒有帳號的球員建立帳號（例如從舊資料匯入的球員）；登入碼只回傳這一次 */
+function adminCreatePlayerAccount_(ctx) {
+  const a = ctx.actor;
+  const id = str_(ctx.payload.playerId, '球員', { required: true, max: 20 });
+  const p = readAll_('Players').find((x) => x.id === id);
+  if (!p) throw apiError_('NOT_FOUND', '找不到這位球員。');
+  const users = readAll_('Users');
+  if (users.some((u) => u.role === 'player' && u.playerId === id)) throw apiError_('INVALID', '這位球員已經有帳號了，如果忘記登入碼請使用「重設登入碼」。');
+  let loginId = id.toLowerCase();
+  for (let n = 2; users.some((u) => u.loginId.toLowerCase() === loginId); n++) loginId = id.toLowerCase() + '-' + n;
+  const acc = createUser_({ loginId: loginId, displayName: p.name, role: 'player', playerId: id, childPlayerIds: '' });
+  audit_(a, '建立球員帳號', id, p.name);
+  return { loginId: acc.loginId, code: acc.code };
+}
+
+// ───────────────────────── 匯入舊體能檢測資料 ─────────────────────────
+
+/**
+ * 把舊系統的紀錄整理成匯入計畫（純計算，不寫入，方便測試）。
+ * records：[{ legacyId, name, item, date, value, detail }]；existingIds：已匯入過的紀錄 id
+ */
+function planLegacyImport_(records, rosterNames, existingPlayers, existingIds) {
+  const today = today_();
+  const rows = [];
+  const skipped = [];
+  let duplicates = 0;
+  const names = {};
+  rosterNames.forEach((n) => {
+    const name = String(n || '').trim();
+    if (name) names[name] = true;
+  });
+  records.forEach((r, i) => {
+    const line = i + 2;
+    const name = String(r.name || '').trim();
+    const legacyId = String(r.legacyId || '').trim();
+    if (!name) return skipped.push({ line: line, reason: '沒有姓名' });
+    if (!legacyId) return skipped.push({ line: line, reason: '沒有記錄ID' });
+    const id = 'L-' + legacyId;
+    if (existingIds[id]) {
+      duplicates++;
+      return;
+    }
+    const item = LEGACY_ITEM_MAP[String(r.item || '').trim()];
+    if (!item) return skipped.push({ line: line, reason: '不支援的檢測項目：' + r.item });
+    const m = String(r.date || '').trim().match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+    const date = m ? m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2) : '';
+    let validDate = false;
+    try {
+      validDate = !!date && dateStr_(date, '日期') === date;
+    } catch (e) {
+      validDate = false;
+    }
+    if (!validDate) return skipped.push({ line: line, reason: '日期格式不正確：' + r.date });
+    if (date > today) return skipped.push({ line: line, reason: '日期在未來：' + date });
+    const def = FITNESS_ITEMS[item];
+    const value = Number(r.value);
+    if (!isFinite(value) || String(r.value).trim() === '' || value < def.min || value > def.max) return skipped.push({ line: line, reason: def.label + '的數值不合理：' + r.value });
+    if (def.integer && Math.round(value) !== value) return skipped.push({ line: line, reason: def.label + '應為整數：' + r.value });
+    const term = parseJson_(r.detail, {}).term;
+    names[name] = true;
+    rows.push({ id: id, name: name, item: item, date: date, value: Math.round(value * 100) / 100, unit: def.unit, note: '舊系統匯入' + (term ? '（' + term + '）' : '') });
+  });
+  // 姓名比對：同名只有一位時直接沿用；同名多位時無法判斷，該姓名的紀錄不匯入
+  const byName = {};
+  existingPlayers.forEach((p) => (byName[p.name] = (byName[p.name] || []).concat([p.id])));
+  const ambiguous = Object.keys(names).filter((n) => (byName[n] || []).length > 1);
+  const usable = rows.filter((r) => ambiguous.indexOf(r.name) < 0);
+  ambiguous.forEach((n) => skipped.push({ line: 0, reason: '名單中有多位「' + n + '」，無法判斷是哪一位，請先修改姓名' }));
+  const newNames = Object.keys(names).filter((n) => !byName[n]);
+  return { rows: usable, newNames: newNames, existingByName: byName, skipped: skipped, duplicates: duplicates, totalRecords: records.length };
+}
+
+/** 讀取舊檔案：「紀錄」工作表必須有 記錄ID、姓名、檢測項目、日期、數值；「名單」工作表（有的話）提供姓名 */
+function planLegacyImportFromUrl_(url) {
+  const m = String(url || '').match(/\/d\/([a-zA-Z0-9_-]{20,})/) || String(url || '').match(/^([a-zA-Z0-9_-]{20,})$/);
+  if (!m) throw apiError_('INVALID', '請貼上舊檔案的 Google 試算表網址。');
+  let src;
+  try {
+    src = SpreadsheetApp.openById(m[1]);
+  } catch (e) {
+    throw apiError_('INVALID', '打不開這份試算表，請確認網址正確，而且是用同一個 Google 帳號建立或已分享給你。');
+  }
+  const recSheet = src.getSheetByName('紀錄');
+  if (!recSheet) throw apiError_('INVALID', '這份試算表沒有「紀錄」工作表。');
+  const values = recSheet.getDataRange().getDisplayValues();
+  const head = values[0] || [];
+  const col = (label) => head.indexOf(label);
+  const need = ['記錄ID', '姓名', '檢測項目', '日期', '數值'];
+  const missing = need.filter((h) => col(h) < 0);
+  if (missing.length) throw apiError_('INVALID', '「紀錄」工作表缺少欄位：' + missing.join('、'));
+  const records = values.slice(1).filter((r) => r.join('') !== '').map((r) => ({
+    legacyId: r[col('記錄ID')], name: r[col('姓名')], item: r[col('檢測項目')], date: r[col('日期')], value: r[col('數值')], detail: col('細節') >= 0 ? r[col('細節')] : '',
+  }));
+  const rosterSheet = src.getSheetByName('名單');
+  let roster = [];
+  if (rosterSheet) {
+    const rv = rosterSheet.getDataRange().getDisplayValues();
+    const nc = (rv[0] || []).indexOf('姓名');
+    if (nc >= 0) roster = rv.slice(1).map((r) => r[nc]);
+  }
+  const existingIds = {};
+  readAll_('FitnessTests').forEach((f) => (existingIds[f.id] = true));
+  const plan = planLegacyImport_(records, roster, readAll_('Players').map(parsePlayer_), existingIds);
+  plan.title = src.getName();
+  return plan;
+}
+
+/** 給教練看的預覽摘要（不含每一筆明細） */
+function summarizeLegacyPlan_(plan) {
+  const items = {};
+  const perName = {};
+  let from = '';
+  let to = '';
+  plan.rows.forEach((r) => {
+    const label = FITNESS_ITEMS[r.item].label;
+    items[label] = (items[label] || 0) + 1;
+    perName[r.name] = (perName[r.name] || 0) + 1;
+    if (!from || r.date < from) from = r.date;
+    if (!to || r.date > to) to = r.date;
+  });
+  const allNames = Object.keys(perName).concat(plan.newNames.filter((n) => !perName[n]));
+  return {
+    title: plan.title || '',
+    totalRecords: plan.totalRecords,
+    importable: plan.rows.length,
+    duplicates: plan.duplicates,
+    skipped: plan.skipped.slice(0, 30),
+    skippedCount: plan.skipped.length,
+    items: items,
+    dateFrom: from,
+    dateTo: to,
+    newPlayers: plan.newNames.length,
+    students: allNames.sort().map((n) => ({ name: n, isNew: plan.newNames.indexOf(n) >= 0, records: perName[n] || 0 })),
+  };
+}
+
+function adminRunLegacyImport_(ctx) {
+  const a = ctx.actor;
+  const plan = planLegacyImportFromUrl_(ctx.payload.sheetUrl);
+  const now = nowIso_();
+  // 1. 建立名單上還沒有的球員（不建立帳號，之後由教練按「建立帳號」）
+  const players = readAll_('Players');
+  let next = players.reduce((mx, p) => Math.max(mx, Number(String(p.id).replace(/\D/g, '')) || 0), 0);
+  const idByName = {};
+  Object.keys(plan.existingByName).forEach((n) => (idByName[n] = plan.existingByName[n][0]));
+  const newPlayers = plan.newNames.map((name) => {
+    next += 1;
+    const id = 'P' + ('00' + next).slice(-3);
+    idByName[name] = id;
+    return { id: id, name: name, number: '', grade: '', position: '', active: true, createdAt: now, updatedAt: now };
+  });
+  appendRows_('Players', newPlayers);
+  // 2. 寫入體能紀錄
+  const fitness = plan.rows.map((r) => ({
+    id: r.id, playerId: idByName[r.name], date: r.date, item: r.item, value: r.value, unit: r.unit, note: r.note, createdBy: a.displayName + '（匯入）', createdAt: now, updatedAt: now,
+  }));
+  appendRows_('FitnessTests', fitness);
+  audit_(a, '匯入舊體能檢測資料', plan.title || 'FitnessTests', '新增球員 ' + newPlayers.length + ' 位、紀錄 ' + fitness.length + ' 筆（略過重複 ' + plan.duplicates + ' 筆、不合格 ' + plan.skipped.length + ' 筆）');
+  return { newPlayers: newPlayers.length, imported: fitness.length, duplicates: plan.duplicates, skippedCount: plan.skipped.length };
+}
+
 // ───────────────────────── 試算表存取 ─────────────────────────
+
+/** 一次寫入多列（大量匯入時比逐列 appendRow 快很多） */
+function appendRows_(name, objs) {
+  if (!objs.length) return;
+  const sh = sheet_(name);
+  const headers = SCHEMA[name];
+  sh.getRange(sh.getLastRow() + 1, 1, objs.length, headers.length).setValues(objs.map((o) => headers.map((h) => cell_(o[h]))));
+}
 
 function sheet_(name) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1931,6 +2109,28 @@ function runSelfTests() {
     expectFail('雲端已有怪獸時不會重複匯入', call('importMonsters', { monsters: [] }, tCoach, Utilities.getUuid()), 'INVALID');
     const final = state(tPA);
     results.push([final.playerMonsters.length === 2 && final.rewardLogs.length >= 4 && final.progress.length >= 3, '遊戲資料（收藏、獎勵紀錄、成長紀錄）都有保存下來', '']);
+
+    // 14. 匯入舊體能資料的整理規則（不讀取外部檔案）
+    const legacy = [
+      { legacyId: 'X1', name: '測試球員TEST-PA', item: 'run1500', date: '2026/8/4', value: '388.1', detail: '{"term":"115上"}' },
+      { legacyId: 'X2', name: '測試新同學', item: 'longjump', date: '2026-09-04', value: '225' },
+      { legacyId: 'X3', name: '測試新同學', item: 'swing', date: '2026-09-08', value: '89.9' },
+      { legacyId: 'X4', name: '測試新同學', item: 'pushup', date: '2026-09-04', value: '20.5' },
+      { legacyId: 'X5', name: '測試新同學', item: 'flying', date: '2026-09-04', value: '1' },
+      { legacyId: 'X6', name: '測試新同學', item: 'situp', date: '2999-01-01', value: '30' },
+      { legacyId: 'DUP', name: '測試新同學', item: 'situp', date: '2026-09-04', value: '30' },
+    ];
+    const lp = planLegacyImport_(legacy, ['測試新同學', '只在名單上的同學'], [{ id: 'TEST-PA', name: '測試球員TEST-PA' }], { 'L-DUP': true });
+    results.push([lp.rows.length === 3 && lp.rows[0].item === 'run1500' && lp.rows[0].note.indexOf('115上') >= 0, '舊資料：可匯入的紀錄正確轉換（含學期備註）', '可匯入 ' + lp.rows.length + ' 筆']);
+    results.push([lp.rows[1].item === 'jump' && lp.rows[1].date === '2026-09-04' && lp.rows[2].item === 'swing', '舊資料：立定跳遠、揮棒速度與兩種日期格式都能對應', '']);
+    results.push([lp.skipped.length === 3 && lp.duplicates === 1, '舊資料：不合理數值、不支援項目、未來日期會被略過；已匯入過的不重複', '略過 ' + lp.skipped.length + '、重複 ' + lp.duplicates]);
+    results.push([lp.newNames.length === 2 && lp.newNames.indexOf('測試球員TEST-PA') < 0, '舊資料：已在名單上的球員沿用，不重複建立', '新球員 ' + lp.newNames.join('、')]);
+
+    // 15. 為沒有帳號的球員建立帳號
+    appendRow_('Players', { id: 'TEST-PC', name: '測試球員TEST-PC', number: '', grade: '', position: '', active: 'TRUE', createdAt: now, updatedAt: now });
+    const acct = call('adminCreatePlayerAccount', { playerId: 'TEST-PC' }, tCoach, Utilities.getUuid());
+    results.push([acct.ok && acct.data.code.length === 8 && call('login', { loginId: acct.data.loginId, code: acct.data.code }).ok, '教練可以為沒有帳號的球員建立帳號，球員可用新帳號登入', acct.ok ? '' : acct.error]);
+    expectFail('已經有帳號的球員不能再建立一次', call('adminCreatePlayerAccount', { playerId: 'TEST-PC' }, tCoach, Utilities.getUuid()), 'INVALID');
 
     // 6. 停用帳號立即失效
     const ub = readAll_('Users').find((u) => u.id === pbAcc.id);

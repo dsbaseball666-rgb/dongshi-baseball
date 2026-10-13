@@ -5,7 +5,7 @@ export interface FitnessItemDef {
   label: string;
   group: string;
   unit: string;
-  kind: 'count' | 'distance' | 'weight' | 'time';
+  kind: 'count' | 'distance' | 'weight' | 'time' | 'speed';
   better: 'higher' | 'lower';
   min: number;
   max: number;
@@ -20,6 +20,8 @@ export const FITNESS_ITEMS: FitnessItemDef[] = [
   { key: 'run1500', label: '1500 公尺', group: '心肺耐力', unit: '秒', kind: 'time', better: 'lower', min: 180, max: 1800, inputHint: '輸入「分:秒」，例如 6:45 或 6:45.30' },
   { key: 'run150', label: '150 公尺', group: '速度', unit: '秒', kind: 'time', better: 'lower', min: 12, max: 90, inputHint: '輸入秒數，例如 22.5' },
   { key: 'grip', label: '慣用手握力', group: '握力', unit: '公斤', kind: 'weight', better: 'higher', min: 1, max: 100, inputHint: '輸入公斤，例如 28.5' },
+  { key: 'swing', label: '揮棒速度', group: '棒球專項', unit: 'km/h', kind: 'speed', better: 'higher', min: 20, max: 200, inputHint: '輸入 km/h，例如 95.5' },
+  { key: 'pitch', label: '投球球速', group: '棒球專項', unit: 'km/h', kind: 'speed', better: 'higher', min: 20, max: 180, inputHint: '輸入 km/h，例如 92.4' },
 ];
 
 export function getFitnessItem(key: FitnessItemKey): FitnessItemDef {
@@ -41,7 +43,7 @@ export function formatRunTime(seconds: number): string {
 export function formatFitnessValue(key: FitnessItemKey, value: number): string {
   const item = getFitnessItem(key);
   if (item.kind === 'time') return `${formatRunTime(value)}（分:秒）`;
-  const shown = item.kind === 'weight' ? String(Math.round(value * 10) / 10) : String(value);
+  const shown = item.kind === 'weight' || item.kind === 'speed' ? String(Math.round(value * 10) / 10) : String(value);
   return `${shown} ${item.unit}`;
 }
 

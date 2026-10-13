@@ -192,8 +192,29 @@ function AccountsTab() {
                     <td>{p.number}</td>
                     <td>{p.grade}</td>
                     <td>{p.position}</td>
-                    <td>{p.active ? <Badge tone="green">啟用</Badge> : <Badge tone="gray">停用</Badge>}</td>
+                    <td>
+                      {p.active ? <Badge tone="green">啟用</Badge> : <Badge tone="gray">停用</Badge>}{' '}
+                      {!data.users.some((u) => u.role === 'player' && u.playerId === p.id) && <Badge tone="yellow">尚無帳號</Badge>}
+                    </td>
                     <td className="nowrap">
+                      {p.active && !data.users.some((u) => u.role === 'player' && u.playerId === p.id) && (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-primary"
+                            disabled={task.pending}
+                            onClick={async () => {
+                              const r = await task.run(() => api<{ loginId: string; code: string }>('adminCreatePlayerAccount', { playerId: p.id }, '建立球員帳號'));
+                              if (r.ok && r.result) {
+                                setIssued({ title: `${p.name} 的球員帳號`, loginId: r.result.loginId, code: r.result.code });
+                                load();
+                              }
+                            }}
+                          >
+                            建立帳號
+                          </button>{' '}
+                        </>
+                      )}
                       <button
                         type="button"
                         className="btn btn-sm"
@@ -339,6 +360,138 @@ function AccountsTab() {
   );
 }
 
+interface LegacyPreview {
+  title: string;
+  totalRecords: number;
+  importable: number;
+  duplicates: number;
+  skipped: { line: number; reason: string }[];
+  skippedCount: number;
+  items: Record<string, number>;
+  dateFrom: string;
+  dateTo: string;
+  newPlayers: number;
+  students: { name: string; isNew: boolean; records: number }[];
+}
+
+/** 匯入舊的體能檢測資料：先預覽（不寫入），確認後才寫入 */
+function LegacyImportTab() {
+  const { api } = useStore();
+  const previewTask = useTask();
+  const runTask = useTask();
+  const [url, setUrl] = useState('');
+  const [preview, setPreview] = useState<LegacyPreview | null>(null);
+  const [done, setDone] = useState<{ newPlayers: number; imported: number; duplicates: number; skippedCount: number } | null>(null);
+
+  const doPreview = async () => {
+    setPreview(null);
+    setDone(null);
+    const r = await previewTask.run(() => api<{ preview: LegacyPreview }>('adminPreviewLegacyImport', { sheetUrl: url.trim() }, '預覽舊資料'));
+    if (r.ok && r.result) setPreview(r.result.preview);
+  };
+  const doImport = async () => {
+    if (!preview || !window.confirm(`確定要匯入 ${preview.importable} 筆紀錄${preview.newPlayers ? `，並新增 ${preview.newPlayers} 位球員` : ''}嗎？`)) return;
+    const r = await runTask.run(() => api<{ newPlayers: number; imported: number; duplicates: number; skippedCount: number }>('adminRunLegacyImport', { sheetUrl: url.trim() }, '匯入舊資料'));
+    if (r.ok && r.result) {
+      setDone(r.result);
+      setPreview(null);
+    }
+  };
+
+  return (
+    <>
+      <Card title="匯入舊的體能檢測資料" icon="📥">
+        <p className="small">
+          貼上舊檔案的 Google 試算表網址。舊檔案需要有「紀錄」工作表（欄位：記錄ID、姓名、檢測項目、日期、數值），「名單」工作表可有可無。
+        </p>
+        <ul className="bullet-list small">
+          <li>先按「預覽」：只會讀取舊檔案，<strong>不會寫入任何資料</strong>，也不會修改舊檔案。</li>
+          <li>姓名和網站名單相同的學生會直接沿用；沒有的會新增為球員（不含帳號，之後在「球員與帳號」按「建立帳號」）。</li>
+          <li>同一筆舊紀錄匯入兩次也不會重複。</li>
+        </ul>
+        <Field label="舊檔案網址">
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…/edit" />
+        </Field>
+        <ActionFeedback action={previewTask} />
+        <button type="button" className="btn btn-primary" disabled={previewTask.pending || !url.trim()} onClick={doPreview}>
+          {previewTask.pending ? '讀取中…' : '預覽'}
+        </button>
+      </Card>
+
+      {done && (
+        <Alert kind="success">
+          匯入完成！新增球員 {done.newPlayers} 位、匯入紀錄 {done.imported} 筆
+          {done.duplicates > 0 && `（${done.duplicates} 筆之前已匯入過，已略過）`}
+          {done.skippedCount > 0 && `，${done.skippedCount} 筆格式不合格未匯入`}。可以到「體能檢測中心」查看每位學生的歷次變化。
+        </Alert>
+      )}
+
+      {preview && (
+        <Card title={`預覽：${preview.title}`} icon="🔍">
+          <div className="stat-grid">
+            <div className="stat-card">
+              <span>可匯入的紀錄</span>
+              <strong>{preview.importable}</strong>
+            </div>
+            <div className="stat-card">
+              <span>將新增的球員</span>
+              <strong>{preview.newPlayers}</strong>
+            </div>
+            <div className="stat-card">
+              <span>已匯入過（略過）</span>
+              <strong>{preview.duplicates}</strong>
+            </div>
+            <div className={`stat-card ${preview.skippedCount ? 'warn' : ''}`}>
+              <span>格式不合格（略過）</span>
+              <strong>{preview.skippedCount}</strong>
+            </div>
+          </div>
+          {preview.importable > 0 && (
+            <p className="small">
+              日期範圍：{preview.dateFrom} ～ {preview.dateTo}
+            </p>
+          )}
+          <h3 className="section-title">各項目筆數</h3>
+          <div className="chip-row">
+            {Object.entries(preview.items).map(([label, n]) => (
+              <Badge key={label} tone="blue">
+                {label} {n} 筆
+              </Badge>
+            ))}
+            {Object.keys(preview.items).length === 0 && <span className="muted">沒有可匯入的紀錄</span>}
+          </div>
+          <h3 className="section-title">學生（{preview.students.length} 位）</h3>
+          <div className="chip-row">
+            {preview.students.map((s) => (
+              <Badge key={s.name} tone={s.isNew ? 'yellow' : 'green'}>
+                {s.name}・{s.records} 筆{s.isNew ? '・新增' : ''}
+              </Badge>
+            ))}
+          </div>
+          <p className="muted small">黃色：網站名單還沒有，匯入時會新增；綠色：已在網站名單上。</p>
+          {preview.skippedCount > 0 && (
+            <>
+              <h3 className="section-title">不會匯入的紀錄（{preview.skippedCount} 筆）</h3>
+              <ul className="bullet-list small">
+                {preview.skipped.map((s, i) => (
+                  <li key={i}>
+                    {s.line > 0 ? `第 ${s.line} 列：` : ''}
+                    {s.reason}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <ActionFeedback action={runTask} />
+          <button type="button" className="btn btn-primary" disabled={runTask.pending || preview.importable === 0} onClick={doImport}>
+            {runTask.pending ? '匯入中…' : `確認匯入 ${preview.importable} 筆`}
+          </button>
+        </Card>
+      )}
+    </>
+  );
+}
+
 function AuditTab() {
   const { api } = useStore();
   const [logs, setLogs] = useState<AuditLog[] | null>(null);
@@ -433,6 +586,7 @@ const TABS = [
   { id: 'rules', label: '📜 球隊規章', el: <RulesAdmin /> },
   { id: 'knowledge', label: '⛑️ 防護知識', el: <KnowledgeAdmin /> },
   { id: 'announcements', label: '📣 公告', el: <AnnouncementsAdmin /> },
+  { id: 'import', label: '📥 匯入舊資料', el: <LegacyImportTab /> },
   { id: 'logs', label: '🗂️ 操作紀錄', el: <AuditTab /> },
   { id: 'sync', label: '🔌 同步錯誤', el: <SyncTab /> },
 ];

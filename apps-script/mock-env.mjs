@@ -23,6 +23,10 @@ function makeSheet(name) {
       rows.splice(r - 1, 1);
     },
     setFrozenRows: () => sheet,
+    getDataRange: () => {
+      const width = rows.reduce((m, r) => Math.max(m, r ? r.length : 0), 0);
+      return sheet.getRange(1, 1, Math.max(1, sheet.getLastRow()), Math.max(1, width));
+    },
     getRange: (row, col, numRows = 1, numCols = 1) => {
       const range = {
         getDisplayValues: () =>
@@ -64,10 +68,27 @@ export function createGasEnv() {
   };
   const cacheStore = new Map();
   const propStore = new Map();
+  // 其他試算表（例如舊體能檢測檔案），可用 addExternal 加入
+  const externals = new Map();
+  const addExternal = (id, title, tabs) => {
+    const list = Object.entries(tabs).map(([name, data]) => {
+      const s = makeSheet(name);
+      data.forEach((row) => s.appendRow(row));
+      return s;
+    });
+    externals.set(id, { getName: () => title, getSheetByName: (n) => list.find((s) => s.name === n) || null });
+  };
   const logs = [];
   const context = {
     console: { log: (...a) => logs.push(a.join(' ')), error: (...a) => logs.push('ERROR ' + a.join(' ')) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush: () => {} },
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => spreadsheet,
+      flush: () => {},
+      openById: (id) => {
+        if (!externals.has(id)) throw new Error('not found');
+        return externals.get(id);
+      },
+    },
     CacheService: {
       getScriptCache: () => ({
         get: (k) => (cacheStore.has(k) ? cacheStore.get(k) : null),
@@ -106,5 +127,5 @@ export function createGasEnv() {
   };
   vm.createContext(context);
   vm.runInContext(readFileSync(new URL('./Code.gs', import.meta.url), 'utf8'), context, { filename: 'Code.gs' });
-  return { gas: context, sheets, spreadsheet, logs };
+  return { gas: context, sheets, spreadsheet, logs, addExternal };
 }
