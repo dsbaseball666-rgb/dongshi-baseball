@@ -3,7 +3,7 @@ import type { Monster, PlayerMonster } from '../../types';
 import { useStore, useTask } from '../../store/DemoStore';
 import { useMonsterAdmin } from '../../sources/game';
 import { usePlayers } from '../../sources/hooks';
-import { EXPLORE_AREAS, MAX_LEVEL, rarityStars, STAGE_LABELS } from '../../lib/monster';
+import { evolveAffectionOf, evolveConditionText, EXPLORE_AREAS, MAX_AFFECTION, MAX_LEVEL, rarityStars, STAGE_LABELS } from '../../lib/monster';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState } from '../../components/UI';
 import { MonsterSprite } from '../../components/MonsterSprite';
 
@@ -16,12 +16,14 @@ function MonsterEditor({ monster, source, onDone }: { monster: Monster; source: 
   const [rate, setRate] = useState(Math.round(monster.catchRate * 100));
   const [inWild, setInWild] = useState(monster.inWild);
   const [evolveLevel, setEvolveLevel] = useState(monster.evolveLevel ?? 0);
+  const [evolveAffection, setEvolveAffection] = useState(evolveAffectionOf(monster));
   return (
     <form
       className="form"
       onSubmit={async (e) => {
         e.preventDefault();
-        const r = await action.run(() => source.update(monster.id, { name, description, catchRate: rate / 100, inWild, evolveLevel: monster.evolvesTo ? evolveLevel : undefined }), '怪獸資料已更新。');
+        const evo = monster.evolvesTo ? { evolveLevel, evolveAffection } : {};
+        const r = await action.run(() => source.update(monster.id, { name, description, catchRate: rate / 100, inWild, ...evo }), '怪獸資料已更新。');
         if (r.ok) onDone();
       }}
     >
@@ -42,6 +44,11 @@ function MonsterEditor({ monster, source, onDone }: { monster: Monster; source: 
           </Field>
         )}
       </div>
+      {monster.evolvesTo && (
+        <Field label={`親密度進化（0～${MAX_AFFECTION}）`} hint="填 0 代表用等級進化；大於 0 代表親密度達到這個數字就能進化（不看等級）。">
+          <input type="number" min={0} max={MAX_AFFECTION} value={evolveAffection} onChange={(e) => setEvolveAffection(Number(e.target.value))} />
+        </Field>
+      )}
       <Field label="圖鑑說明" required>
         <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={120} />
       </Field>
@@ -174,7 +181,7 @@ export default function MonstersAdmin() {
                 {!m.inWild && m.stage !== 3 && <Badge tone="gray">暫停出沒</Badge>}
                 <div className="muted small">
                   {STAGE_LABELS[m.stage]}・{m.inWild ? `${area(m.habitat)}・捕捉率 ${Math.round(m.catchRate * 100)}%` : m.stage === 3 ? '僅能進化取得' : '目前不在野外出沒'}・{ownerCount(m.id)} 位球員擁有
-                  {m.evolvesTo && `・Lv.${m.evolveLevel} 進化為 ${nameOf(m.evolvesTo)}`}
+                  {m.evolvesTo && `・${evolveConditionText(m)} 進化為 ${nameOf(m.evolvesTo)}`}
                 </div>
                 {editing === m.id ? <MonsterEditor monster={m} source={source} onDone={() => setEditing(null)} /> : <p className="small">{m.description}</p>}
               </div>

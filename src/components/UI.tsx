@@ -47,7 +47,7 @@ export function Card({ title, icon, actions, children, className = '' }: { title
   );
 }
 
-export function ProgressBar({ value, max, label, tone = 'exp' }: { value: number; max: number; label?: string; tone?: 'exp' | 'goal' | 'hp' }) {
+export function ProgressBar({ value, max, label, tone = 'exp' }: { value: number; max: number; label?: string; tone?: 'exp' | 'goal' | 'hp' | 'heart' }) {
   const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((value / max) * 100))) : 0;
   return (
     <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={label ?? `${pct}%`}>

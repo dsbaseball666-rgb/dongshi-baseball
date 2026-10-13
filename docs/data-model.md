@@ -17,8 +17,8 @@
 | Goals | 目標與進度 | id | playerId, term, content, criteria, startDate, dueDate, status, checkpoints(JSON) | ✅ 第三階段 |
 | Tasks | 任務設定 | id | title, category, repeat, verify, 各項獎勵, active | ✅ 第四階段 |
 | TaskCompletions | 任務完成／領獎 | id | taskId + playerId + periodKey（**唯一**）, status | ✅ 第四階段 |
-| Monsters | 怪獸資料（遊戲數值；像素外觀在網頁內建） | id | dexNo, stage, evolvesTo, evolveLevel, habitat, catchRate | ✅ 第四階段 |
-| PlayerMonsters | 球員的怪獸 | id | playerId, monsterId, level, exp, partner, hp, hpAt | ✅ 第四階段（5.2 新增 hp、hpAt） |
+| Monsters | 怪獸資料（遊戲數值；像素外觀在網頁內建） | id | dexNo, stage, evolvesTo, evolveLevel, habitat, catchRate, evolveAffection | ✅ 第四階段（5.6 新增 evolveAffection：空白＝預設、0＝等級進化、大於 0＝親密度進化） |
+| PlayerMonsters | 球員的怪獸 | id | playerId, monsterId, level, exp, partner, hp, hpAt, affection, careDate, careCounts | ✅ 第四階段（5.2 新增 hp、hpAt；5.6 新增親密度與每日互動次數） |
 | MonsterProgress | 成長紀錄 | id | playerId, playerMonsterId, expGain, levelAfter, reason | ✅ 第四階段 |
 | Wallets | 點數、捕捉球、每日探索、遭遇中的怪獸、道具、每日對戰次數 | playerId | points, balls, exploreDate, exploreCount, supplyDate, seenMonsterIds, items, battleDate, pveCount, pvpCount | ✅ 第四階段（自動建立；5.2 新增道具與對戰欄位） |
 | ExamScores | 段考成績 | id | playerId + schoolYear + semester + examNo（**唯一**）, grade, scores（JSON：科目→分數） | ✅ 5.2（自動建立） |

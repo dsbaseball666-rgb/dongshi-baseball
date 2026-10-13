@@ -5,6 +5,7 @@ import { todayStr } from '../lib/date';
 import {
   addFitness,
   capture,
+  careMonster,
   chooseStarter,
   claimDailySupply,
   claimReward,
@@ -172,6 +173,32 @@ describe('怪獸遊戲', () => {
     const m = db.monsters.find((x) => x.id === 'M004')!;
     const next = updateMonster(db, coach, 'M004', { name: m.name, description: m.description, catchRate: m.catchRate, inWild: true, evolveLevel: 2 }, NOW);
     expect(evolveMonster(next, p2, 'PM-demo-3', NOW).result.to).toBe('綠葉獸');
+  });
+  it('互動會增加親密度，每種互動每天有次數上限', () => {
+    const { db, p1, p2 } = setup();
+    db.wallets.find((w) => w.playerId === 'P001')!.points = 5;
+    let next = db;
+    for (let i = 0; i < 3; i++) next = careMonster(next, p1, 'PM-demo-1', 'pet', NOW).db;
+    expect(() => careMonster(next, p1, 'PM-demo-1', 'pet', NOW)).toThrow('明天再來');
+    const fed = careMonster(next, p1, 'PM-demo-1', 'feed', NOW);
+    expect(fed.db.wallets.find((w) => w.playerId === 'P001')!.points).toBe(0);
+    expect(() => careMonster(fed.db, p1, 'PM-demo-1', 'feed', NOW)).toThrow('點數不足');
+    const played = careMonster(fed.db, p1, 'PM-demo-1', 'play', NOW);
+    expect(played.result.affection).toBe(14);
+    expect(played.result.exp).toBe(5);
+    expect(() => careMonster(db, p2, 'PM-demo-1', 'pet', NOW)).toThrow('只能操作自己的怪獸');
+    // 跨日後次數重新計算
+    const tomorrow = new Date(Date.parse(NOW) + 86400000).toISOString();
+    expect(careMonster(played.db, p1, 'PM-demo-1', 'pet', tomorrow).result.affection).toBe(16);
+  });
+  it('親密度進化的怪獸，親密度達到就能進化（不看等級）', () => {
+    const { db, p1 } = setup();
+    const pm = db.playerMonsters.find((m) => m.id === 'PM-demo-1')!;
+    pm.monsterId = 'M010'; // 球球丸：親密度 50 進化
+    pm.level = 1;
+    expect(() => evolveMonster(db, p1, 'PM-demo-1', NOW)).toThrow('親密度需要達到 50');
+    pm.affection = 50;
+    expect(evolveMonster(db, p1, 'PM-demo-1', NOW).result.to).toBe('縫線球球');
   });
   it('教練不能代替球員玩遊戲', () => {
     const { db, coach } = setup();

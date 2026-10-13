@@ -58,7 +58,7 @@ function PlayerGame() {
                   </strong>
                   {partner.maxHp ? <ProgressBar value={partner.hp ?? partner.maxHp} max={partner.maxHp} tone="hp" label={`HP ${partner.hp ?? partner.maxHp} / ${partner.maxHp}`} /> : null}
                   <ProgressBar value={partner.exp} max={expToNext(partner.level)} label={`EXP ${partner.exp} / ${expToNext(partner.level)}`} />
-                  {canEvolve(mon, partner.level) && <Badge tone="yellow">✨ 可以進化了！</Badge>}
+                  {canEvolve(mon, partner.level, partner.affection ?? 0) &&<Badge tone="yellow">✨ 可以進化了！</Badge>}
                 </>
               ) : (
                 <>

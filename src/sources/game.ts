@@ -3,6 +3,7 @@ import type { Battle, BattleMode, BattleSummary, ExploreAreaId, ItemId, Knowledg
 import { useStore } from '../store/DemoStore';
 import {
   capture,
+  careMonster,
   chooseStarter,
   claimDailySupply,
   claimReward,
@@ -20,6 +21,7 @@ import {
   updateMonster,
   upsertTask,
   type CaptureResult,
+  type CareResult,
   type EvolveResult,
   type MonsterEdit,
   type TaskInput,
@@ -27,7 +29,7 @@ import {
 import { SEED_MONSTERS } from '../data/monsters';
 import { createSeed } from '../data/seed';
 import { todayStr } from '../lib/date';
-import type { TrainPlanId } from '../lib/monster';
+import type { CareActionId, TrainPlanId } from '../lib/monster';
 import { useCloudQuery } from './hooks';
 
 // 遊戲資料來源：示範模式讀寫瀏覽器資料；雲端模式由 Apps Script 決定所有結果（探索、捕捉、領獎、測驗批改）。
@@ -158,6 +160,10 @@ export function useGame() {
         if (!cloud) return perform('捕捉怪獸', (d) => capture(d, user, Math.random));
         return call<CaptureResult & { state: GameState }>('capture', {}, '捕捉怪獸');
       },
+      async care(pmId: string, kind: CareActionId): Promise<CareResult | undefined> {
+        if (!cloud) return perform('與怪獸互動', (d) => careMonster(d, user, pmId, kind));
+        return call<CareResult & { state: GameState }>('careMonster', { playerMonsterId: pmId, action: kind }, '與怪獸互動');
+      },
       async evolve(pmId: string): Promise<EvolveResult | undefined> {
         if (!cloud) return perform('怪獸進化', (d) => evolveMonster(d, user, pmId));
         return call<EvolveResult & { state: GameState }>('evolveMonster', { playerMonsterId: pmId }, '怪獸進化');
@@ -267,8 +273,8 @@ export function useMonsterAdmin() {
       },
       /** 雲端怪獸表是空的時候，匯入 75 隻原創怪獸的遊戲數值 */
       async importDefaults() {
-        const list = SEED_MONSTERS.map(({ id, dexNo, name, element, rarity, stage, evolvesTo, evolveLevel, description, habitat, catchRate, isStarter, inWild }) => ({
-          id, dexNo, name, element, rarity, stage, evolvesTo, evolveLevel, description, habitat, catchRate, isStarter, inWild,
+        const list = SEED_MONSTERS.map(({ id, dexNo, name, element, rarity, stage, evolvesTo, evolveLevel, evolveAffection, description, habitat, catchRate, isStarter, inWild }) => ({
+          id, dexNo, name, element, rarity, stage, evolvesTo, evolveLevel, evolveAffection, description, habitat, catchRate, isStarter, inWild,
         }));
         await api('importMonsters', { monsters: list }, '匯入怪獸圖鑑');
         monsters.reload();

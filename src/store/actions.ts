@@ -22,7 +22,7 @@ import type {
 import { can, type Permission } from '../lib/permissions';
 import { isoWeekKey, isValidDateStr, todayStr } from '../lib/date';
 import { FITNESS_ITEMS, getFitnessItem } from '../lib/fitness';
-import { applyExp, MAX_LEVEL, pickEncounter, TRAIN_PLANS, type TrainPlanId } from '../lib/monster';
+import { applyExp, CARE_ACTIONS, evolveAffectionOf, MAX_AFFECTION, MAX_LEVEL, pickEncounter, TRAIN_PLANS, type CareActionId, type TrainPlanId } from '../lib/monster';
 import { config } from '../config';
 
 export class ActionError extends Error {
@@ -445,6 +445,42 @@ export function trainMonster(db0: DemoDB, actor: User | null, pmId: string, plan
   return db;
 }
 
+export type CareResult = { action: CareActionId; gained: number; affection: number; exp: number; healed: number };
+
+/** 與怪獸互動：增加親密度；每隻怪獸每種互動每天有次數上限（示範模式不計算 HP） */
+export function careMonster(db0: DemoDB, actor: User | null, pmId: string, kind: CareActionId, now = nowIso()): Outcome<CareResult> {
+  requirePermission(actor, 'game.play');
+  const db = clone(db0);
+  const pm = db.playerMonsters.find((m) => m.id === pmId);
+  check(pm && pm.playerId === actor.playerId, '只能操作自己的怪獸。');
+  const act = CARE_ACTIONS.find((a) => a.id === kind);
+  check(act, '互動方式不正確。');
+  const today = localToday(now);
+  const counts = pm.careDate === today ? { ...pm.careCounts } : {};
+  const used = counts[kind] ?? 0;
+  check(used < act.daily, `今天已經和 ${pm.nickname} ${act.label} ${act.daily} 次了，明天再來吧！`);
+  if (act.cost) {
+    const w = getWallet(db, pm.playerId);
+    check(w.points >= act.cost, `點數不足，${act.label}需要 ${act.cost} 點（目前 ${w.points} 點）。`);
+    w.points -= act.cost;
+    db.rewardLogs.unshift({ id: uid('RL'), playerId: pm.playerId, source: '互動', detail: `${act.label}（${pm.nickname}）`, exp: 0, points: -act.cost, balls: 0, at: now });
+  }
+  counts[kind] = used + 1;
+  pm.careDate = today;
+  pm.careCounts = counts;
+  const before = Math.min(MAX_AFFECTION, pm.affection ?? 0);
+  pm.affection = Math.min(MAX_AFFECTION, before + act.affection);
+  let exp = 0;
+  if (act.exp && pm.level < MAX_LEVEL) {
+    const r = applyExp(pm.level, pm.exp, act.exp);
+    pm.level = r.level;
+    pm.exp = r.exp;
+    exp = act.exp;
+    db.monsterProgress.unshift({ id: uid('MP'), playerId: pm.playerId, playerMonsterId: pm.id, expGain: exp, levelAfter: r.level, reason: act.label, at: now });
+  }
+  return { db, result: { action: kind, gained: pm.affection - before, affection: pm.affection, exp, healed: 0 } };
+}
+
 /** 每日補給：所有球員每天都能領，不因成績或受傷休養而不同 */
 export function claimDailySupply(db0: DemoDB, actor: User | null, now = nowIso()): DemoDB {
   requirePermission(actor, 'game.play');
@@ -532,8 +568,11 @@ export function evolveMonster(db0: DemoDB, actor: User | null, pmId: string, now
   check(pm && pm.playerId === actor.playerId, '只能讓自己的怪獸進化。');
   const mon = db.monsters.find((m) => m.id === pm.monsterId);
   check(mon, '怪獸資料不存在。');
-  check(mon.evolvesTo && mon.evolveLevel, `${mon.name} 已經是最終型態，無法再進化。`);
-  check(pm.level >= mon.evolveLevel, `${pm.nickname} 需要達到 Lv.${mon.evolveLevel} 才能進化（目前 Lv.${pm.level}）。`);
+  const needAff = evolveAffectionOf(mon);
+  check(mon.evolvesTo && (mon.evolveLevel || needAff), `${mon.name} 已經是最終型態，無法再進化。`);
+  const aff = pm.affection ?? 0;
+  if (needAff) check(aff >= needAff, `${pm.nickname} 的親密度需要達到 ${needAff} 才能進化（目前 ${aff}）。多和牠互動吧！`);
+  else check(pm.level >= (mon.evolveLevel ?? 0), `${pm.nickname} 需要達到 Lv.${mon.evolveLevel} 才能進化（目前 Lv.${pm.level}）。`);
   const next = db.monsters.find((m) => m.id === mon.evolvesTo);
   check(next, '找不到進化後的怪獸資料。');
   if (pm.nickname === mon.name) pm.nickname = next.name;
@@ -695,6 +734,8 @@ export interface MonsterEdit {
   catchRate: number;
   inWild: boolean;
   evolveLevel?: number;
+  /** 0＝用等級進化；大於 0＝親密度達到就能進化 */
+  evolveAffection?: number;
 }
 
 export function updateMonster(db0: DemoDB, actor: User | null, monsterId: string, input: MonsterEdit, now = nowIso()): DemoDB {
@@ -708,7 +749,10 @@ export function updateMonster(db0: DemoDB, actor: User | null, monsterId: string
   m.catchRate = Math.round(input.catchRate * 100) / 100;
   m.inWild = input.inWild;
   if (m.evolvesTo && input.evolveLevel !== undefined) m.evolveLevel = cleanInt(input.evolveLevel, '進化等級', 2, MAX_LEVEL);
-  audit(db, actor, '修改怪獸資料', m.id, `${m.name}（捕捉率 ${Math.round(m.catchRate * 100)}%${m.evolveLevel ? `、Lv.${m.evolveLevel} 進化` : ''}）`, now);
+  if (m.evolvesTo && input.evolveAffection !== undefined) m.evolveAffection = cleanInt(input.evolveAffection, '親密度進化', 0, MAX_AFFECTION);
+  const need = evolveAffectionOf(m);
+  const how = need ? `、親密度 ${need} 進化` : m.evolveLevel ? `、Lv.${m.evolveLevel} 進化` : '';
+  audit(db, actor, '修改怪獸資料', m.id, `${m.name}（捕捉率 ${Math.round(m.catchRate * 100)}%${how}）`, now);
   return db;
 }
 

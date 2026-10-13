@@ -393,6 +393,66 @@ th { background: #f2f4f8; white-space: nowrap; }
 .capture-result .form-actions { justify-content: center; }
 .capture-result.is-win { background: #fffbe0; }
 @media (max-width: 480px) { .capture-stage { height: 260px; } }
+
+/* 進化動畫 */
+.evolve-stage { background: radial-gradient(circle at 50% 55%, #fff8e1 0, #b39ddb 55%, #4527a0 100%); }
+.evolve-stage.evo-done { background: radial-gradient(circle at 50% 55%, #fffde7 0, #ffe082 55%, #ff8f00 100%); }
+.evo-rays { position: absolute; left: 50%; top: 55%; width: 640px; height: 640px; margin: -320px 0 0 -320px; border-radius: 50%; background: repeating-conic-gradient(rgba(255, 255, 255, 0.35) 0 10deg, transparent 10deg 20deg); opacity: 0; animation: spin 8s linear infinite; }
+.evo-morph .evo-rays, .evo-flash .evo-rays, .evo-done .evo-rays { opacity: 1; }
+.evo-mons { position: absolute; left: 50%; top: 55%; width: 144px; height: 144px; margin: -72px 0 0 -72px; }
+.evo-old, .evo-new { position: absolute; inset: 0; }
+.evo-new { opacity: 0; }
+.evo-intro .evo-old { animation: evo-glow 0.65s ease-in-out 2; }
+.evo-morph .evo-old, .evo-morph .evo-new, .evo-flash .evo-new { filter: brightness(0) invert(1) drop-shadow(0 0 10px #fff); }
+.evo-morph .evo-old { animation: evo-a 2.6s linear both; }
+.evo-morph .evo-new { animation: evo-b 2.6s linear both; }
+.evo-flash .evo-old, .evo-done .evo-old { opacity: 0; }
+.evo-flash .evo-new { opacity: 1; }
+.evo-done .evo-new { opacity: 1; animation: evolve 1s steps(6) both, bounce 1.2s steps(2) 1s infinite; }
+.evo-flash { position: absolute; inset: 0; background: #fff; animation: evo-white 0.45s ease-out both; }
+.evolve-stage .capture-stars { bottom: auto; top: 55%; }
+@keyframes evo-glow { 50% { filter: brightness(2.2) drop-shadow(0 0 12px #fff); transform: scale(1.06); } }
+@keyframes evo-a {
+  0%, 18% { opacity: 1; } 18.01%, 30% { opacity: 0; } 30.01%, 42% { opacity: 1; } 42.01%, 51% { opacity: 0; } 51.01%, 59% { opacity: 1; } 59.01%, 66% { opacity: 0; }
+  66.01%, 72% { opacity: 1; } 72.01%, 77% { opacity: 0; } 77.01%, 82% { opacity: 1; } 82.01%, 86% { opacity: 0; } 86.01%, 90% { opacity: 1; } 90.01%, 93% { opacity: 0; } 93.01%, 96% { opacity: 1; } 96.01%, 100% { opacity: 0; }
+}
+@keyframes evo-b {
+  0%, 18% { opacity: 0; } 18.01%, 30% { opacity: 1; } 30.01%, 42% { opacity: 0; } 42.01%, 51% { opacity: 1; } 51.01%, 59% { opacity: 0; } 59.01%, 66% { opacity: 1; }
+  66.01%, 72% { opacity: 0; } 72.01%, 77% { opacity: 1; } 77.01%, 82% { opacity: 0; } 82.01%, 86% { opacity: 1; } 86.01%, 90% { opacity: 0; } 90.01%, 93% { opacity: 1; } 93.01%, 96% { opacity: 0; } 96.01%, 100% { opacity: 1; }
+}
+@keyframes evo-white { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
+
+/* 與怪獸互動 */
+.care-card { scroll-margin-top: 80px; }
+.care-room { position: relative; height: 210px; overflow: hidden; background: linear-gradient(180deg, #fff3e0 0 62%, #d7b98e 62% 100%); border: 3px solid var(--line); border-radius: var(--radius); }
+.care-room::before { content: ''; position: absolute; left: 0; right: 0; top: 62%; height: 3px; background: var(--line); }
+.care-mon { position: absolute; left: 50%; bottom: 18px; width: 120px; margin-left: -60px; transform-origin: 50% 100%; }
+.care-bubble { position: absolute; left: 12px; right: 12px; top: 10px; padding: 6px 10px; font-weight: 700; text-align: center; background: #fff; border: 3px solid var(--line); border-radius: 12px; animation: cap-appear 0.3s steps(3) both; }
+.care-float { position: absolute; left: 50%; bottom: 140px; margin-left: 30px; font-weight: 900; color: #e91e63; text-shadow: 0 0 2px #fff; animation: care-up 1.2s ease-out both; }
+.care-fx { position: absolute; left: 50%; bottom: 60px; width: 0; height: 0; }
+.care-fx span { position: absolute; font-size: 1.5rem; opacity: 0; }
+.react-pet .care-mon { animation: care-wiggle 0.8s ease-in-out both; }
+.react-pet .care-fx span { animation: care-heart 1.2s ease-out both; animation-delay: calc(var(--i) * 0.15s); left: calc(var(--x) * 1px); }
+.react-feed .care-mon { animation: care-chomp 0.9s steps(6) 0.45s both; }
+.react-feed .care-fx span { animation: care-drop 0.6s ease-in both; left: -14px; }
+.react-play .care-mon { animation: care-jump 0.9s ease-out 0.5s both; }
+.react-play .care-fx span { animation: care-toss 0.7s ease-out both; }
+@keyframes care-up { 0% { opacity: 0; transform: translateY(10px); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-40px); } }
+@keyframes care-wiggle { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-8deg); } 40% { transform: rotate(8deg); } 60% { transform: rotate(-5deg); } 80% { transform: rotate(4deg) scale(1.04); } }
+@keyframes care-heart { 0% { opacity: 0; transform: translateY(0) scale(0.5); } 25% { opacity: 1; } 100% { opacity: 0; transform: translateY(-110px) scale(1.2); } }
+@keyframes care-chomp { 0%, 100% { transform: none; } 20%, 60% { transform: scale(1.08, 0.88); } 40%, 80% { transform: scale(0.95, 1.06); } }
+@keyframes care-drop { 0% { opacity: 1; transform: translateY(-120px); } 85% { opacity: 1; transform: translateY(-20px) scale(1); } 100% { opacity: 0; transform: translateY(-10px) scale(0.3); } }
+@keyframes care-toss { 0% { opacity: 1; transform: translate(-150px, -10px); } 50% { transform: translate(-70px, -110px); } 100% { opacity: 1; transform: translate(-6px, -70px); } }
+@keyframes care-jump { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-36px); } 70% { transform: translateY(0) scale(1.08, 0.92); } }
+.care-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+.care-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.care-btn .care-left { font-size: 0.8rem; font-weight: 400; }
+.affection-row { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.progress-fill.tone-heart { background: repeating-linear-gradient(90deg, #f06292 0 8px, #ec407a 8px 16px); }
+@media (prefers-reduced-motion: reduce) {
+  .evo-rays, .evo-old, .evo-new, .evo-flash, .care-mon, .care-fx span, .care-float, .care-bubble { animation: none !important; }
+  .care-fx, .care-float { display: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .encounter-pop, .encounter-alert, .capture-monster, .capture-ball-wrap, .capture-ball, .capture-stars span, .capture-result { animation: none !important; }
   .capture-burst, .capture-stars { display: none; }

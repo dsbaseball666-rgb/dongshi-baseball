@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import type { PlayerMonster } from '../types';
+import type { Monster, PlayerMonster } from '../types';
 import { useTask } from '../store/DemoStore';
 import { useGame } from '../sources/game';
 import type { EvolveResult } from '../store/actions';
-import { canEvolve, expToNext, MAX_LEVEL, rarityStars, STAGE_LABELS, TRAIN_PLANS } from '../lib/monster';
+import { canEvolve, evolveAffectionOf, evolveConditionText, expToNext, MAX_LEVEL, rarityStars, STAGE_LABELS, TRAIN_PLANS, type CareActionId } from '../lib/monster';
+import { EvolveScene } from '../components/EvolveScene';
+import { CarePanel } from '../components/CarePanel';
 import { formatDateTime } from '../lib/date';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, PageHeader, ProgressBar } from '../components/UI';
 import { MonsterSprite } from '../components/MonsterSprite';
@@ -18,21 +20,39 @@ function TrainingContent({ game }: { game: ReturnType<typeof useGame> }) {
   const partnerMon = partner && monsters.find((m) => m.id === partner.monsterId);
   const wallet = state.wallet;
   const seen = new Set(wallet.seenMonsterIds);
-  const [evolved, setEvolved] = useState<EvolveResult | null>(null);
-  const evolvedMon = evolved && monsters.find((m) => m.id === evolved.toId);
+  // 進化動畫：先記下進化前後的怪獸，送出後由動畫畫面呈現結果
+  const [evo, setEvo] = useState<{ key: number; pm: PlayerMonster; from: Monster; to: Monster } | null>(null);
+  // 互動對象：預設是夥伴，也可以從收藏中選
+  const [careId, setCareId] = useState<string | null>(null);
+  const carePm = mine.find((m) => m.id === careId) ?? partner;
+  const careMon = carePm && monsters.find((m) => m.id === carePm.monsterId);
 
-  const doEvolve = async (pm: PlayerMonster) => {
-    setEvolved(null);
-    const r = await action.run(() => game.evolve(pm.id));
-    if (r.ok && r.result) setEvolved(r.result);
+  const doEvolve = (pm: PlayerMonster) => {
+    const from = monsters.find((x) => x.id === pm.monsterId);
+    const to = from && monsters.find((x) => x.id === from.evolvesTo);
+    if (!from || !to) return;
+    action.clear();
+    setEvo({ key: Date.now(), pm, from, to });
+  };
+  const runEvolve = async (pmId: string): Promise<EvolveResult | undefined> => {
+    const r = await action.run(() => game.evolve(pmId));
+    return r.ok ? r.result : undefined;
+  };
+  const runCare = async (pmId: string, kind: CareActionId) => {
+    const r = await action.run(() => game.care(pmId, kind));
+    return r.ok ? r.result : undefined;
+  };
+  const chooseCare = (pmId: string) => {
+    setCareId(pmId);
+    document.getElementById('care-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const evolveInfo = (pm: PlayerMonster) => {
     const m = monsters.find((x) => x.id === pm.monsterId);
-    if (!m?.evolvesTo || !m.evolveLevel) return <Badge tone="purple">最終型態</Badge>;
+    if (!m?.evolvesTo || (!m.evolveLevel && !evolveAffectionOf(m))) return <Badge tone="purple">最終型態</Badge>;
     const next = monsters.find((x) => x.id === m.evolvesTo);
     const nextName = next && seen.has(next.id) ? next.name : '？？？';
-    if (canEvolve(m, pm.level))
+    if (canEvolve(m, pm.level, pm.affection ?? 0))
       return (
         <button type="button" className="btn btn-sm btn-gold evolve-btn" disabled={action.pending} onClick={() => doEvolve(pm)}>
           ✨ 進化！
@@ -40,7 +60,8 @@ function TrainingContent({ game }: { game: ReturnType<typeof useGame> }) {
       );
     return (
       <span className="muted small">
-        Lv.{m.evolveLevel} 可進化為 {nextName}
+        {evolveAffectionOf(m) > 0 ? '❤ ' : ''}
+        {evolveConditionText(m)} 可進化為 {nextName}
       </span>
     );
   };
@@ -80,20 +101,8 @@ function TrainingContent({ game }: { game: ReturnType<typeof useGame> }) {
     <>
       <Alert kind="info">怪獸的等級與能力是遊戲機制，<strong>不代表你真實的體能表現</strong>。受傷休養時也能透過筆記、防護知識與觀察任務繼續冒險。</Alert>
       <ActionFeedback action={action} />
-      {evolved && evolvedMon && (
-        <Card className="evolve-card">
-          <div className="evolve-body">
-            <MonsterSprite monster={evolvedMon} size={140} className="evolve-flash" />
-            <div>
-              <h2>🎉 恭喜！{evolved.from} 進化成 {evolved.to}！</h2>
-              <p className="muted">{evolvedMon.description}</p>
-              <p className="small">已登錄到怪獸圖鑑。等級與經驗值都會保留。</p>
-              <button type="button" className="btn btn-sm" onClick={() => setEvolved(null)}>
-                太棒了！
-              </button>
-            </div>
-          </div>
-        </Card>
+      {evo && (
+        <EvolveScene key={evo.key} from={evo.from} to={evo.to} nickname={evo.pm.nickname} onEvolve={() => runEvolve(evo.pm.id)} onClose={() => setEvo(null)} />
       )}
       <div className="grid-2">
         <Card title="目前夥伴" icon="⭐">
@@ -147,6 +156,11 @@ function TrainingContent({ game }: { game: ReturnType<typeof useGame> }) {
           )}
         </Card>
       </div>
+      <div id="care-panel">
+        {carePm && careMon && (
+          <CarePanel key={`${carePm.id}-${careMon.id}`} pm={carePm} monster={careMon} today={state.today} points={wallet.points} action={action} onCare={(kind) => runCare(carePm.id, kind)} />
+        )}
+      </div>
       <Card title={`我的收藏（${mine.length}）`} icon="🎒">
         <div className="monster-grid">
           {mine.map((pm) => {
@@ -160,7 +174,13 @@ function TrainingContent({ game }: { game: ReturnType<typeof useGame> }) {
                   Lv.{pm.level}・{STAGE_LABELS[m.stage]}
                 </span>
                 {pm.maxHp ? <ProgressBar value={pm.hp ?? pm.maxHp} max={pm.maxHp} tone="hp" label={`HP ${pm.hp ?? pm.maxHp}/${pm.maxHp}`} /> : null}
+                <span className="small">❤ 親密度 {pm.affection ?? 0}</span>
                 {evolveInfo(pm)}
+                {carePm?.id !== pm.id && (
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => chooseCare(pm.id)}>
+                    💕 互動
+                  </button>
+                )}
                 {pm.partner ? (
                   <Badge tone="yellow">夥伴</Badge>
                 ) : (

@@ -164,6 +164,8 @@ export interface Monster {
   evolvesTo?: string;
   /** 需要達到的等級才能進化（由教練調整） */
   evolveLevel?: number;
+  /** 大於 0 時改用親密度進化（不看等級）；沒有值時使用預設 */
+  evolveAffection?: number;
   description: string;
   habitat: ExploreAreaId;
   catchRate: number;
@@ -191,6 +193,10 @@ export interface PlayerMonster {
   atk?: number;
   def?: number;
   spd?: number;
+  /** 親密度 0～100；careDate／careCounts 是當天各種互動的次數 */
+  affection?: number;
+  careDate?: string;
+  careCounts?: Partial<Record<'pet' | 'feed' | 'play', number>>;
 }
 
 export type ItemId = 'potion' | 'superPotion' | 'powerGlove' | 'guardGear';

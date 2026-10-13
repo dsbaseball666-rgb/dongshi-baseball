@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.5.0';
+const API_VERSION = '5.6.0';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -31,9 +31,11 @@ const SCHEMA = {
   FitnessTests: ['id', 'playerId', 'date', 'item', 'value', 'unit', 'note', 'createdBy', 'createdAt', 'updatedAt'],
   Tasks: ['id', 'title', 'description', 'category', 'repeat', 'verify', 'expReward', 'pointReward', 'ballReward', 'active'],
   TaskCompletions: ['id', 'taskId', 'playerId', 'periodKey', 'status', 'submittedAt', 'reviewedBy', 'reviewedAt', 'claimedAt'],
-  Monsters: ['id', 'dexNo', 'name', 'element', 'rarity', 'stage', 'evolvesTo', 'evolveLevel', 'description', 'habitat', 'catchRate', 'isStarter', 'inWild'],
+  // evolveAffection：空白＝使用預設（AFFECTION_EVOLVE_DEFAULTS）；0＝用等級進化；大於 0＝親密度達到就能進化
+  Monsters: ['id', 'dexNo', 'name', 'element', 'rarity', 'stage', 'evolvesTo', 'evolveLevel', 'description', 'habitat', 'catchRate', 'isStarter', 'inWild', 'evolveAffection'],
   // hp 空白代表滿血；hpAt 是最後一次寫入 hp 的時間（用來計算自然回復）
-  PlayerMonsters: ['id', 'playerId', 'monsterId', 'nickname', 'level', 'exp', 'partner', 'obtainedAt', 'obtainedBy', 'hp', 'hpAt'],
+  // affection：親密度；careDate／careCounts：當天各種互動的次數
+  PlayerMonsters: ['id', 'playerId', 'monsterId', 'nickname', 'level', 'exp', 'partner', 'obtainedAt', 'obtainedBy', 'hp', 'hpAt', 'affection', 'careDate', 'careCounts'],
   MonsterProgress: ['id', 'playerId', 'playerMonsterId', 'expGain', 'levelAfter', 'reason', 'at'],
   Rules: ['id', 'no', 'title', 'content', 'category', 'version', 'updatedAt', 'updatedBy', 'needsCoachReview', 'reviewNote', 'isAnnouncement'],
   KnowledgeArticles: ['id', 'title', 'category', 'audience', 'summary', 'details', 'cautions', 'sources', 'updatedAt', 'status', 'reviewed', 'quiz'],
@@ -87,6 +89,16 @@ const ITEMS = {
   guardGear: { label: '防護護具', price: 20, boost: 'defUp' },
 };
 const ITEM_MAX_HOLD = 20;
+
+// 與怪獸互動（與前端 src/lib/monster.ts 的 CARE_ACTIONS 相同）：每隻怪獸每天的次數各自計算
+const CARE = {
+  pet: { label: '摸摸牠', daily: 3, affection: 2, cost: 0, exp: 0, heal: 0 },
+  feed: { label: '餵點心', daily: 2, affection: 4, cost: 5, exp: 0, heal: 0.2 },
+  play: { label: '一起玩球', daily: 1, affection: 4, cost: 0, exp: 5, heal: 0 },
+};
+const MAX_AFFECTION = 100;
+// 這些怪獸靠「親密度」進化（不看等級）；教練可在後台逐隻調整
+const AFFECTION_EVOLVE_DEFAULTS = { M010: 50, M016: 50, M028: 50, M052: 50, M064: 50, M070: 50 };
 
 // 段考成績：各年級的科目（7＝一年級、8＝二年級、9＝三年級）
 const EXAM_SUBJECTS = {
@@ -185,6 +197,7 @@ const ROUTES = {
   chooseStarter: { roles: ['player'], write: true, fn: chooseStarter_ },
   setPartner: { roles: ['player'], write: true, fn: setPartner_ },
   trainMonster: { roles: ['player'], write: true, fn: trainMonster_ },
+  careMonster: { roles: ['player'], write: true, fn: careMonster_ },
   claimDailySupply: { roles: ['player'], write: true, fn: claimDailySupply_ },
   explore: { roles: ['player'], write: true, fn: explore_ },
   leaveEncounter: { roles: ['player'], write: true, fn: leaveEncounter_ },
@@ -866,13 +879,22 @@ function parseMonster_(r) {
     id: r.id, dexNo: Number(r.dexNo), name: r.name, element: r.element, rarity: Number(r.rarity) || 1, stage: Number(r.stage) || 1,
     evolvesTo: r.evolvesTo || undefined, evolveLevel: r.evolveLevel ? Number(r.evolveLevel) : undefined, description: r.description,
     habitat: r.habitat, catchRate: Number(r.catchRate) || 0, isStarter: r.isStarter === 'TRUE', inWild: r.inWild === 'TRUE',
+    evolveAffection: r.evolvesTo ? evolveAffectionOf_(r) : undefined,
   };
+}
+
+/** 進化需要的親密度；0 代表用等級進化 */
+function evolveAffectionOf_(m) {
+  const raw = m.evolveAffection;
+  if (raw === '' || raw === undefined || raw === null) return AFFECTION_EVOLVE_DEFAULTS[m.id] || 0;
+  return Math.max(0, Number(raw) || 0);
 }
 
 function parsePM_(r) {
   return {
     id: r.id, playerId: r.playerId, monsterId: r.monsterId, nickname: r.nickname, level: Number(r.level) || 1, exp: Number(r.exp) || 0,
     partner: r.partner === 'TRUE', obtainedAt: r.obtainedAt, obtainedBy: r.obtainedBy,
+    affection: Math.min(MAX_AFFECTION, Number(r.affection) || 0), careDate: r.careDate || '', careCounts: parseJson_(r.careCounts, {}),
   };
 }
 
@@ -1121,6 +1143,53 @@ function trainMonster_(ctx) {
   return { state: gameState_(pm.playerId) };
 }
 
+/** 與怪獸互動：增加親密度；每隻怪獸每種互動每天有次數上限 */
+function careMonster_(ctx) {
+  const pm = findOwnPM_(ctx.actor, ctx.payload.playerMonsterId);
+  requireActivePlayer_(pm.playerId);
+  const kind = String(ctx.payload.action || '');
+  const act = Object.prototype.hasOwnProperty.call(CARE, kind) ? CARE[kind] : null;
+  if (!act) throw apiError_('INVALID', '互動方式不正確。');
+  const today = today_();
+  const counts = pm.careDate === today ? parseJson_(pm.careCounts, {}) : {};
+  const used = Number(counts[kind]) || 0;
+  if (used >= act.daily) throw apiError_('INVALID', '今天已經和 ' + pm.nickname + ' ' + act.label + ' ' + act.daily + ' 次了，明天再來吧！');
+  if (act.cost) {
+    const w = loadWallet_(pm.playerId);
+    const points = Number(w.points) || 0;
+    if (points < act.cost) throw apiError_('INVALID', '點數不足，' + act.label + '需要 ' + act.cost + ' 點（目前 ' + points + ' 點）。');
+    w.points = points - act.cost;
+    saveWallet_(w);
+    rewardLog_(pm.playerId, '互動', act.label + '（' + pm.nickname + '）', 0, -act.cost, 0);
+  }
+  counts[kind] = used + 1;
+  const before = Math.min(MAX_AFFECTION, Number(pm.affection) || 0);
+  const affection = Math.min(MAX_AFFECTION, before + act.affection);
+  const row = Object.assign({}, pm, { affection: affection, careDate: today, careCounts: JSON.stringify(counts) });
+  let expGained = 0;
+  if (act.exp && Number(pm.level) < GAME.maxLevel) {
+    const r = applyExp_(Number(pm.level), Number(pm.exp), act.exp);
+    row.level = r.level;
+    row.exp = r.exp;
+    expGained = act.exp;
+  }
+  let healed = 0;
+  const m = readAll_('Monsters').find((x) => x.id === pm.monsterId);
+  if (act.heal && m) {
+    const s = monsterStats_(m, row.level);
+    const hp = currentHp_(pm, s.maxHp, Date.now());
+    if (hp < s.maxHp) {
+      const after = Math.min(s.maxHp, hp + Math.ceil(s.maxHp * act.heal));
+      healed = after - hp;
+      row.hp = after >= s.maxHp ? '' : after;
+      row.hpAt = nowIso_();
+    }
+  }
+  updateRow_('PlayerMonsters', pm._row, row);
+  if (expGained) progressLog_(pm.playerId, pm.id, expGained, row.level, act.label);
+  return { action: kind, gained: affection - before, affection: affection, exp: expGained, healed: healed, state: gameState_(pm.playerId) };
+}
+
 /** 每日補給：所有球員每天都能領一次，不因成績或受傷休養而不同 */
 function claimDailySupply_(ctx) {
   const playerId = requireGamePlayer_(ctx.actor);
@@ -1206,14 +1275,17 @@ function capture_(ctx) {
   return { success: success, duplicate: duplicate, monsterName: m.name, state: gameState_(playerId) };
 }
 
-/** 進化：達到該怪獸設定的等級才能進化，等級與經驗值保留 */
+/** 進化：達到該怪獸設定的等級（或親密度）才能進化，等級、經驗值與親密度保留 */
 function evolveMonster_(ctx) {
   const pm = findOwnPM_(ctx.actor, ctx.payload.playerMonsterId);
   const monsters = readAll_('Monsters');
   const m = monsters.find((x) => x.id === pm.monsterId);
   if (!m) throw apiError_('NOT_FOUND', '怪獸資料不存在。');
-  if (!m.evolvesTo || !m.evolveLevel) throw apiError_('INVALID', m.name + ' 已經是最終型態，無法再進化。');
-  if (Number(pm.level) < Number(m.evolveLevel)) throw apiError_('INVALID', pm.nickname + ' 需要達到 Lv.' + m.evolveLevel + ' 才能進化（目前 Lv.' + pm.level + '）。');
+  const needAff = m.evolvesTo ? evolveAffectionOf_(m) : 0;
+  if (!m.evolvesTo || (!m.evolveLevel && !needAff)) throw apiError_('INVALID', m.name + ' 已經是最終型態，無法再進化。');
+  const aff = Number(pm.affection) || 0;
+  if (needAff && aff < needAff) throw apiError_('INVALID', pm.nickname + ' 的親密度需要達到 ' + needAff + ' 才能進化（目前 ' + aff + '）。多和牠互動吧！');
+  if (!needAff && Number(pm.level) < Number(m.evolveLevel)) throw apiError_('INVALID', pm.nickname + ' 需要達到 Lv.' + m.evolveLevel + ' 才能進化（目前 Lv.' + pm.level + '）。');
   const next = monsters.find((x) => x.id === m.evolvesTo);
   if (!next) throw apiError_('NOT_FOUND', '找不到進化後的怪獸資料。');
   updateRow_('PlayerMonsters', pm._row, Object.assign({}, pm, { monsterId: next.id, nickname: pm.nickname === m.name ? next.name : pm.nickname }));
@@ -1345,10 +1417,12 @@ function importMonsters_(ctx) {
     if (m.evolvesTo && ids.indexOf(String(m.evolvesTo)) < 0) throw apiError_('INVALID', '進化目標不存在：' + m.id);
     const lv = m.evolvesTo ? Number(m.evolveLevel) : '';
     if (m.evolvesTo && !(Math.round(lv) === lv && lv >= 2 && lv <= GAME.maxLevel)) throw apiError_('INVALID', '進化等級不正確：' + m.id);
+    const aff = m.evolvesTo ? Number(m.evolveAffection) || 0 : '';
+    if (m.evolvesTo && !(Math.round(aff) === aff && aff >= 0 && aff <= MAX_AFFECTION)) throw apiError_('INVALID', '進化親密度不正確：' + m.id);
     return {
       id: m.id, dexNo: Number(m.dexNo), name: str_(m.name, '怪獸名稱', { required: true, max: 12 }), element: m.element, rarity: rarity, stage: stage,
       evolvesTo: m.evolvesTo || '', evolveLevel: lv, description: str_(m.description, '圖鑑說明', { required: true, max: 120 }), habitat: m.habitat,
-      catchRate: rate, isStarter: m.isStarter === true, inWild: m.inWild === true,
+      catchRate: rate, isStarter: m.isStarter === true, inWild: m.inWild === true, evolveAffection: aff,
     };
   });
   rows.forEach((r) => appendRow_('Monsters', r));
@@ -1375,9 +1449,15 @@ function updateMonster_(ctx) {
     if (!(Math.round(lv) === lv && lv >= 2 && lv <= GAME.maxLevel)) throw apiError_('INVALID', '「進化等級」必須是 2～' + GAME.maxLevel + ' 的整數。');
     changes.evolveLevel = lv;
   }
+  if (m.evolvesTo && p.evolveAffection !== undefined) {
+    const aff = Number(p.evolveAffection);
+    if (!(Math.round(aff) === aff && aff >= 0 && aff <= MAX_AFFECTION)) throw apiError_('INVALID', '「親密度進化」必須是 0～' + MAX_AFFECTION + ' 的整數（0 代表用等級進化）。');
+    changes.evolveAffection = aff;
+  }
   const row = Object.assign({}, m, changes);
   updateRow_('Monsters', m._row, row);
-  audit_(a, '修改怪獸資料', id, changes.name + '（捕捉率 ' + Math.round(changes.catchRate * 100) + '%' + (changes.evolveLevel ? '、Lv.' + changes.evolveLevel + ' 進化' : '') + '）');
+  const how = changes.evolveAffection ? '、親密度 ' + changes.evolveAffection + ' 進化' : changes.evolveLevel ? '、Lv.' + changes.evolveLevel + ' 進化' : '';
+  audit_(a, '修改怪獸資料', id, changes.name + '（捕捉率 ' + Math.round(changes.catchRate * 100) + '%' + how + '）');
   return { monster: parseMonster_(stringify_(row)) };
 }
 
@@ -3352,6 +3432,47 @@ function runSelfTests() {
     const swap = call('adminUpdateUser', { userId: teacherAcc.id, displayName: '測試轉學務處', role: 'office' }, tCoach, Utilities.getUuid());
     results.push([swap.ok && readAll_('Users').find((u) => u.id === teacherAcc.id).role === 'office', '教練可以把老師帳號改成學務處', swap.ok ? '' : swap.error]);
     expectFail('教練帳號不能被改成其他角色', call('adminUpdateUser', { userId: coachAcc.id, displayName: 'x', role: 'office' }, tCoach), 'INVALID');
+
+    // 22. 與怪獸互動、親密度進化
+    mon('TEST-M4', 904, { evolvesTo: 'TEST-M5', evolveLevel: 30, evolveAffection: 10 });
+    mon('TEST-M5', 905, { stage: 2 });
+    appendRow_('PlayerMonsters', { id: 'TEST-PM-CARE', playerId: 'TEST-PA', monsterId: 'TEST-M4', nickname: '測試獸904', level: 1, exp: 0, partner: false, obtainedAt: now, obtainedBy: 'capture', hp: 10, hpAt: now });
+    const wCare = readAll_('Wallets').find((x) => x.playerId === 'TEST-PA');
+    updateRow_('Wallets', wCare._row, Object.assign({}, wCare, { points: 7 }));
+    const care = (kind, t) => call('careMonster', { playerMonsterId: 'TEST-PM-CARE', action: kind }, t || tPA, Utilities.getUuid());
+    const careRow = () => readAll_('PlayerMonsters').find((x) => x.id === 'TEST-PM-CARE');
+    expectFail('親密度還不夠時不能進化', call('evolveMonster', { playerMonsterId: 'TEST-PM-CARE' }, tPA, Utilities.getUuid()), 'INVALID');
+    const pet1 = care('pet');
+    results.push([pet1.ok && pet1.data.gained === 2 && pet1.data.affection === 2, '摸摸牠會增加親密度', pet1.ok ? '' : pet1.error]);
+    care('pet');
+    care('pet');
+    expectFail('摸摸牠每天有次數上限', care('pet'), 'INVALID');
+    const feed1 = care('feed');
+    results.push([feed1.ok && feed1.data.healed > 0 && feed1.data.state.wallet.points === 2, '餵點心會扣點數並回復 HP', feed1.ok ? 'HP +' + feed1.data.healed + '、點數 ' + feed1.data.state.wallet.points : feed1.error]);
+    expectFail('點數不足時不能餵點心', care('feed'), 'INVALID');
+    const play1 = care('play');
+    results.push([play1.ok && play1.data.exp === 5 && Number(careRow().exp) === 5, '一起玩球會增加經驗值', play1.ok ? '' : play1.error]);
+    expectFail('不能和別人的怪獸互動', care('pet', tB), 'FORBIDDEN');
+    expectFail('不存在的互動方式會被拒絕', care('dance'), 'INVALID');
+    expectFail('特殊名稱的互動方式會被拒絕', care('__proto__'), 'INVALID');
+    const affNow = Number(careRow().affection);
+    results.push([affNow === 14, '親密度正確累積（摸 3 次＋餵 1 次＋玩 1 次＝14）', '親密度 ' + affNow]);
+    const evoAff = call('evolveMonster', { playerMonsterId: 'TEST-PM-CARE' }, tPA, Utilities.getUuid());
+    results.push([evoAff.ok && evoAff.data.toId === 'TEST-M5' && Number(careRow().affection) === 14 && Number(careRow().level) === 1, '親密度達到後，不看等級也能進化（親密度保留）', evoAff.ok ? '' : evoAff.error]);
+    const cr1 = careRow();
+    updateRow_('PlayerMonsters', cr1._row, Object.assign({}, cr1, { careDate: '2000-01-01' }));
+    expectOk('隔天互動次數重新計算', care('pet'));
+    const cr2 = careRow();
+    updateRow_('PlayerMonsters', cr2._row, Object.assign({}, cr2, { affection: 99, careDate: '2000-01-01' }));
+    const top = care('pet');
+    results.push([top.ok && top.data.affection === 100 && top.data.gained === 1, '親密度最高 100', top.ok ? String(top.data.affection) : top.error]);
+    const monList = call('listMonsters', {}, tPA).data.monsters;
+    const mAff = (id) => (monList.find((x) => x.id === id) || {}).evolveAffection;
+    results.push([mAff('TEST-M4') === 10 && mAff('TEST-M1') === 0, '圖鑑資料包含進化方式（親密度或等級）', mAff('TEST-M4') + ' / ' + mAff('TEST-M1')]);
+    const editM = { id: 'TEST-M1', name: '測試獸901', description: '測試', catchRate: 0.5, inWild: false, evolveLevel: 2 };
+    const updAff = call('updateMonster', Object.assign({ evolveAffection: 30 }, editM), tCoach, Utilities.getUuid());
+    results.push([updAff.ok && updAff.data.monster.evolveAffection === 30, '教練可以把怪獸改成親密度進化', updAff.ok ? '' : updAff.error]);
+    expectFail('親密度進化的數值超出範圍會被拒絕', call('updateMonster', Object.assign({ evolveAffection: 500 }, editM), tCoach), 'INVALID');
 
     expectFail('每天的野外對戰次數有上限', call('startBattle', { mode: 'pve', areaId: 'field', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
 

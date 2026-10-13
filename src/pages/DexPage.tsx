@@ -3,7 +3,7 @@ import type { MonsterElement } from '../types';
 import { useStore } from '../store/DemoStore';
 import { useGame } from '../sources/game';
 import { can } from '../lib/permissions';
-import { evolutionChain, EXPLORE_AREAS, rarityStars, STAGE_LABELS } from '../lib/monster';
+import { evolutionChain, evolveAffectionOf, EXPLORE_AREAS, rarityStars, STAGE_LABELS } from '../lib/monster';
 import { Alert, Badge, Card, EmptyState, LoadingState, PageHeader, ProgressBar } from '../components/UI';
 import { MonsterSprite } from '../components/MonsterSprite';
 
@@ -148,7 +148,7 @@ function DexContent({ game, isCoach }: { game: ReturnType<typeof useGame>; isCoa
                       const st = stateOf(c.id);
                       return (
                         <Fragment key={c.id}>
-                          {i > 0 && <span className="evo-arrow">→<small>Lv.{chain[i - 1].evolveLevel}</small></span>}
+                          {i > 0 && <span className="evo-arrow">→<small>{evolveAffectionOf(chain[i - 1]) > 0 ? `❤${evolveAffectionOf(chain[i - 1])}` : `Lv.${chain[i - 1].evolveLevel}`}</small></span>}
                           <button type="button" className={`evo-step ${c.id === sel.id ? 'active' : ''}`} onClick={() => setSelected(c.id)}>
                             <MonsterSprite monster={c} size={44} silhouette={st !== 'owned'} />
                             <small>{st === 'unknown' ? '？？？' : c.name}</small>

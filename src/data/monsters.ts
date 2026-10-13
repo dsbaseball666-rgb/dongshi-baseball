@@ -1,4 +1,5 @@
 import type { ExploreAreaId, Monster, MonsterElement, SpriteAccessory, SpritePalette, SpriteShape } from '../types';
+import { AFFECTION_EVOLVE_DEFAULTS } from '../lib/monster';
 
 // 全部為本專案原創怪獸，未使用任何寶可夢或其他遊戲的角色、名稱與素材。
 // 共 25 條進化路線 × 3 階段 = 75 隻。
@@ -246,6 +247,7 @@ export const SEED_MONSTERS: Monster[] = LINES.flatMap((line, i) =>
       stage,
       evolvesTo: stage < 3 ? idOf(dexNo + 1) : undefined,
       evolveLevel: stage === 1 ? DEFAULT_EVOLVE_LEVELS[1] : stage === 2 ? DEFAULT_EVOLVE_LEVELS[2] : undefined,
+      evolveAffection: stage < 3 ? (AFFECTION_EVOLVE_DEFAULTS[idOf(dexNo)] ?? 0) : undefined,
       description: f.desc,
       habitat: line.habitat,
       catchRate: stage === 1 ? BASE_CATCH[line.rarity] : stage === 2 ? 0.3 : 0.1,
