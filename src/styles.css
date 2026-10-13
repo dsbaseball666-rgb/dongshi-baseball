@@ -345,6 +345,60 @@ th { background: #f2f4f8; white-space: nowrap; }
 .encounter { background: linear-gradient(180deg, #d9f3c9 0, #fff 70%); }
 .encounter-body { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
 .encounter-body > div { flex: 1; min-width: 220px; }
+.encounter-body > .encounter-pop { flex: 0 0 auto; min-width: 0; position: relative; animation: cap-appear 0.6s steps(6) both; }
+.encounter-alert { position: absolute; top: -4px; right: -4px; width: 32px; height: 32px; display: grid; place-items: center; font-weight: 900; font-size: 1.3rem; color: #fff; background: #e53935; border: 3px solid var(--line); border-radius: 50%; animation: cap-alert 0.5s steps(4) 0.5s both; }
+@keyframes cap-appear { 0% { opacity: 0; transform: translateY(40px) scale(0.3); filter: brightness(3); } 70% { opacity: 1; transform: translateY(-8px) scale(1.05); } 100% { transform: none; filter: none; } }
+@keyframes cap-alert { 0% { transform: scale(0); } 60% { transform: scale(1.4); } 100% { transform: scale(1); } }
+
+/* 捕捉動畫 */
+.capture-overlay { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; background: rgba(20, 22, 35, 0.78); overflow-y: auto; }
+.capture-stage { --sky: #bfe7ff; --ground: #8fd16a; position: relative; width: 100%; max-width: 520px; height: 300px; flex-shrink: 0; overflow: hidden; background: linear-gradient(180deg, var(--sky), #fff 85%); border: 4px solid var(--line); border-radius: 10px; box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.35); }
+.capture-riverside { --sky: #cde9ff; --ground: #a8c97c; }
+.capture-orchard { --sky: #ffe7bd; --ground: #9fcf6e; }
+.capture-grass { position: absolute; left: 0; right: 0; bottom: 0; height: 72px; background: repeating-linear-gradient(90deg, transparent 0 18px, rgba(0, 0, 0, 0.06) 18px 22px), var(--ground); border-top: 3px solid var(--line); }
+.capture-monster { position: absolute; left: 50%; bottom: 52px; width: 128px; margin-left: -64px; transform-origin: 50% 75%; animation: bounce 1.2s steps(2) infinite; }
+.capture-ball-wrap { position: absolute; left: 50%; bottom: 52px; width: 48px; height: 48px; margin-left: -24px; opacity: 0; }
+.capture-ball { position: relative; width: 48px; height: 48px; border-radius: 50%; overflow: hidden; background: radial-gradient(circle at 35% 30%, #fff 0 40%, #e6e6e6 75%); border: 3px solid var(--line); transform-origin: 50% 100%; }
+.capture-ball .seam { position: absolute; top: -4px; width: 40px; height: 52px; border: 3px dashed #e53935; border-radius: 50%; }
+.capture-ball .seam-l { left: -28px; }
+.capture-ball .seam-r { right: -28px; }
+.capture-caption { position: absolute; top: 12px; left: 12px; right: 12px; margin: 0; padding: 6px 10px; text-align: center; font-weight: 900; font-size: 1.15rem; background: #fff; border: 3px solid var(--line); border-radius: var(--radius); }
+
+.phase-throw .capture-ball-wrap { opacity: 1; transform: translateY(-56px); animation: cap-throw 0.65s ease-out both; }
+.phase-absorb .capture-monster { opacity: 0; animation: cap-absorb 0.45s ease-in both; }
+.phase-absorb .capture-ball-wrap { opacity: 1; animation: cap-drop 0.5s ease-in both; }
+.phase-shake .capture-monster, .phase-caught .capture-monster { opacity: 0; animation: none; }
+.phase-shake .capture-ball-wrap, .phase-caught .capture-ball-wrap { opacity: 1; }
+.phase-shake .capture-ball { animation: cap-wobble 0.75s ease-in-out both; }
+.phase-caught .capture-ball { animation: cap-lock 0.6s steps(3) both; }
+.capture-stage.phase-caught { --sky: #fff59d; }
+.phase-escaped .capture-monster { animation: cap-escape 0.5s steps(5) both, bounce 1.2s steps(2) 0.5s infinite; }
+@keyframes cap-throw { 0% { transform: translate(-170px, 110px) rotate(0) scale(0.7); } 45% { transform: translate(-80px, -150px) rotate(300deg) scale(1); } 100% { transform: translate(0, -56px) rotate(720deg); } }
+@keyframes cap-absorb { 0% { opacity: 1; filter: none; transform: none; } 40% { opacity: 1; filter: brightness(4) saturate(0); transform: scale(1.1); } 100% { opacity: 0; filter: brightness(4) saturate(0); transform: translateY(20px) scale(0.05); } }
+@keyframes cap-drop { 0% { transform: translateY(-56px); } 60% { transform: translateY(0); } 80% { transform: translateY(-12px); } 100% { transform: translateY(0); } }
+@keyframes cap-wobble { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-22deg); } 50% { transform: rotate(18deg); } 75% { transform: rotate(-6deg); } }
+@keyframes cap-lock { 0% { filter: brightness(1); } 50% { filter: brightness(1.6); transform: scale(1.15); } 100% { filter: none; transform: none; } }
+@keyframes cap-escape { 0% { opacity: 0; transform: scale(0.1); filter: brightness(4); } 60% { opacity: 1; transform: scale(1.15); } 100% { opacity: 1; transform: none; filter: none; } }
+
+.capture-stars { position: absolute; left: 50%; bottom: 76px; width: 0; height: 0; }
+.capture-stars span { position: absolute; left: -10px; top: -14px; font-size: 1.4rem; color: #ffb300; text-shadow: 0 0 2px var(--line); opacity: 0; animation: cap-star 0.9s ease-out 0.15s both; }
+@keyframes cap-star { 0% { opacity: 1; transform: rotate(var(--a)) translateY(0) scale(0.4); } 100% { opacity: 0; transform: rotate(var(--a)) translateY(-90px) scale(1.2); } }
+.capture-burst { position: absolute; left: 50%; bottom: 40px; margin-left: -36px; font-size: 4.5rem; line-height: 1; opacity: 0; animation: cap-burst 0.6s ease-out both; }
+@keyframes cap-burst { 0% { opacity: 1; transform: scale(0.3); } 100% { opacity: 0; transform: scale(1.6); } }
+
+.capture-result { width: 100%; max-width: 520px; padding: 16px; text-align: center; background: #fff; border: 4px solid var(--line); border-radius: 10px; animation: cap-appear 0.4s steps(4) both; }
+.capture-result h2 { margin: 0 0 6px; }
+.capture-result .monster-sprite { display: block; margin: 0 auto 4px; }
+.capture-result p { margin: 0 0 12px; }
+.capture-result .form-actions { justify-content: center; }
+.capture-result.is-win { background: #fffbe0; }
+@media (max-width: 480px) { .capture-stage { height: 260px; } }
+@media (prefers-reduced-motion: reduce) {
+  .encounter-pop, .encounter-alert, .capture-monster, .capture-ball-wrap, .capture-ball, .capture-stars span, .capture-result { animation: none !important; }
+  .capture-burst, .capture-stars { display: none; }
+  .phase-throw .capture-ball-wrap, .phase-absorb .capture-ball-wrap { transform: none; }
+  .phase-escaped .capture-monster { opacity: 1; }
+}
 
 .dex-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .dex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }

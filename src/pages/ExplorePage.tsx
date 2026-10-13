@@ -8,6 +8,8 @@ import { config } from '../config';
 import { ActionFeedback, Alert, Badge, Card, PageHeader } from '../components/UI';
 import { MonsterSprite } from '../components/MonsterSprite';
 import { GameGate } from '../components/GameGate';
+import { CaptureScene } from '../components/CaptureScene';
+import type { Monster } from '../types';
 
 function ExploreContent({ game }: { game: ReturnType<typeof useGame> }) {
   const action = useTask();
@@ -26,9 +28,19 @@ function ExploreContent({ game }: { game: ReturnType<typeof useGame> }) {
     setResult(null);
     await action.run(() => game.explore(areaId));
   };
-  const doCapture = async () => {
+  // 捕捉動畫：先記下這次的怪獸，避免抓到後遭遇消失、畫面跟著不見
+  const [scene, setScene] = useState<{ key: number; monster: Monster; areaId: string } | null>(null);
+  const doCapture = () => {
+    if (!mon || !encounter) return;
+    setResult(null);
+    action.clear();
+    setScene({ key: Date.now(), monster: mon, areaId: encounter.areaId });
+  };
+  const throwBall = async () => {
     const res = await action.run(() => game.capture());
-    if (res.ok && res.result) setResult(res.result);
+    if (!res.ok || !res.result) return undefined;
+    setResult(res.result);
+    return res.result;
   };
 
   return (
@@ -56,7 +68,19 @@ function ExploreContent({ game }: { game: ReturnType<typeof useGame> }) {
       )}
       <ActionFeedback action={action} />
 
-      {result && (
+      {scene && (
+        <CaptureScene
+          key={scene.key}
+          monster={scene.monster}
+          areaId={scene.areaId}
+          ballsLeft={wallet.balls}
+          onThrow={throwBall}
+          onRetry={() => setScene({ ...scene, key: Date.now() })}
+          onClose={() => setScene(null)}
+        />
+      )}
+
+      {result && !scene && (
         <Alert kind={result.success ? 'success' : 'warn'}>
           {result.success
             ? result.duplicate
@@ -67,9 +91,14 @@ function ExploreContent({ game }: { game: ReturnType<typeof useGame> }) {
       )}
 
       {encounter && mon ? (
-        <Card title="野生怪獸出現了！" icon="❗" className="encounter">
+        <Card key={encounter.at} title="野生怪獸出現了！" icon="❗" className={`encounter encounter-${encounter.areaId}`}>
           <div className="encounter-body">
-            <MonsterSprite monster={mon} size={160} className="bounce" />
+            <div className="encounter-pop">
+              <span className="encounter-alert" aria-hidden>
+                !
+              </span>
+              <MonsterSprite monster={mon} size={160} className="bounce" />
+            </div>
             <div>
               <h3>
                 No.{String(mon.dexNo).padStart(3, '0')} {mon.name}
