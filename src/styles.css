@@ -212,6 +212,7 @@ textarea { resize: vertical; }
 .role-player { background: #b3e5fc; }
 .role-parent { background: #e1bee7; }
 .role-teacher { background: #c5e1a5; }
+.role-office { background: #ffab91; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .stars { color: #f5a400; letter-spacing: 1px; }
 
@@ -436,6 +437,13 @@ th { background: #f2f4f8; white-space: nowrap; }
 .compact-list li { padding: 2px 0; }
 .check-filter { width: 100%; margin-bottom: 6px; }
 .register-link { margin-top: 8px; }
+.view-tabs { margin-bottom: 4px; }
+.batch-tag { display: inline-block; margin-top: 4px; padding: 0 6px; font-size: 0.78rem; font-weight: 700; background: #fff3c4; border: 2px dashed var(--sun-dark); border-radius: 4px; }
+.roster-filter { width: auto; max-width: 180px; padding: 4px 8px; }
+.roster-table th, .roster-table td { padding: 6px 8px; vertical-align: top; }
+.link-btn { font: inherit; font-weight: 700; color: var(--blue); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; text-align: left; }
+.check-tools { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; align-items: center; }
+.check-tools .check-filter { flex: 1; min-width: 160px; margin-bottom: 0; }
 
 /* ── 段考成績 ── */
 .exam-key { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }

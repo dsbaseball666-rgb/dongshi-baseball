@@ -39,9 +39,12 @@ export function useHub(playerId: string) {
     [api, playerId, patch],
   );
   const deleteMessage = useCallback(
-    async (id: string) => {
-      await api('deleteMessage', { id }, '刪除留言');
-      patch((s) => ({ ...s, messages: s.messages.filter((m) => m.id !== id) }));
+    async (id: string, wholeBatch = false) => {
+      await api('deleteMessage', { id, wholeBatch }, '刪除留言');
+      patch((s) => {
+        const target = s.messages.find((m) => m.id === id);
+        return { ...s, messages: s.messages.filter((m) => m.id !== id && !(wholeBatch && target?.batchId && m.batchId === target.batchId)) };
+      });
     },
     [api, patch],
   );
@@ -75,6 +78,34 @@ export function useHub(playerId: string) {
   );
 
   return { data: q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, postMessage, deleteMessage, saveRecord, deleteRecord, saveEvent, deleteEvent };
+}
+
+export interface RosterRow {
+  playerId: string;
+  name: string;
+  grade: string;
+  number: string;
+  lastMessageAt: string;
+  lastMessageBy: string;
+  lastRecord: { date: string; category: string; rating: string } | null;
+  notes14: number;
+  latestExam: { label: string; average: number | null } | null;
+  upcomingEvents: number;
+}
+
+/** 全部學生一覽與群發訊息 */
+export function useRoster(enabled: boolean) {
+  const { mode, api, user } = useStore();
+  const q = useCloudQuery<RosterRow[]>(mode === 'cloud' && enabled, `roster-${user?.id}`, () => api<{ students: RosterRow[] }>('hubRoster', {}, '讀取學生一覽').then((r) => r.students), []);
+  const broadcast = useCallback(
+    async (playerIds: string[], body: string) => {
+      const r = await api<{ sent: number }>('postMessage', { playerIds, body }, '群發訊息');
+      q.reload();
+      return r.sent;
+    },
+    [api, q.reload],
+  );
+  return { students: q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, broadcast };
 }
 
 /** 自己看得到的行程（首頁「最近行程」用） */

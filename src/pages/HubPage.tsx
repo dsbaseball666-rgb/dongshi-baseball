@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import type { DailyNote, Role, SchoolRecord, TeamEvent } from '../types';
 import { useStore, useTask } from '../store/DemoStore';
 import { usePlayers } from '../sources/hooks';
-import { EVENT_CATEGORIES, EVENT_ICONS, formatEventTime, SCHOOL_CATEGORIES, SCHOOL_RATINGS, useHub, type EventInput, type HubSummary } from '../sources/hub';
+import { EVENT_CATEGORIES, EVENT_ICONS, formatEventTime, SCHOOL_CATEGORIES, SCHOOL_RATINGS, useHub, useRoster, type EventInput, type HubSummary } from '../sources/hub';
 import { addDays, formatDate, formatDateTime, todayStr } from '../lib/date';
 import { formatFitnessValue, getFitnessItem } from '../lib/fitness';
 import { goalProgress, GOAL_STATUS_LABELS } from '../lib/progress';
@@ -24,8 +24,8 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const RATING_TONE: Record<string, 'green' | 'blue' | 'gray' | 'red'> = { 優良: 'green', 良好: 'blue', 普通: 'gray', 待加強: 'red' };
-const ROLE_SHORT: Record<Role, string> = { coach: '教練', parent: '家長', teacher: '老師', player: '球員' };
-const ROLE_TONE: Record<Role, 'yellow' | 'blue' | 'purple' | 'green'> = { coach: 'yellow', parent: 'blue', teacher: 'purple', player: 'green' };
+const ROLE_SHORT: Record<Role, string> = { coach: '教練', parent: '家長', teacher: '老師', player: '球員', office: '學務處' };
+const ROLE_TONE: Record<Role, 'yellow' | 'blue' | 'purple' | 'green' | 'red'> = { coach: 'yellow', parent: 'blue', teacher: 'purple', player: 'green', office: 'red' };
 
 function RoleBadge({ role, name }: { role: Role; name: string }) {
   return (
@@ -59,13 +59,19 @@ function Messages({ hub, data, compact = false }: { hub: Hub; data: HubSummary; 
                   <RoleBadge role={m.authorRole} name={m.authorName} />
                   <span className="muted small">{formatDateTime(m.createdAt)}</span>
                 </div>
+                {m.batchId && <span className="batch-tag">📢 群發給 {m.batchSize} 位學生</span>}
                 <p className="bubble-body">{m.body}</p>
                 {!compact && (mine || user?.role === 'coach') && (
                   <button
                     type="button"
                     className="btn btn-sm btn-ghost"
                     disabled={task.pending}
-                    onClick={() => window.confirm('確定刪除這則留言？') && task.run(() => hub.deleteMessage(m.id))}
+                    onClick={() => {
+                      if (m.batchId) {
+                        if (!window.confirm(`這是群發給 ${m.batchSize} 位學生的訊息。\n\n按「確定」：從所有學生的溝通區一起刪除\n按「取消」：不刪除`)) return;
+                        task.run(() => hub.deleteMessage(m.id, true));
+                      } else if (window.confirm('確定刪除這則留言？')) task.run(() => hub.deleteMessage(m.id));
+                    }}
                   >
                     刪除
                   </button>
@@ -224,7 +230,7 @@ function NoteItem({ n }: { n: DailyNote }) {
 function EventForm({ hub, playerId, playerName, onDone }: { hub: Hub; playerId: string; playerName: string; onDone: () => void }) {
   const { user } = useStore();
   const task = useTask();
-  const isCoach = user?.role === 'coach';
+  const isCoach = user?.role === 'coach' || user?.role === 'office';
   const [scope, setScope] = useState<'one' | 'all'>('one');
   const [f, setF] = useState<EventInput>({ title: '', date: todayStr(), startTime: '', endTime: '', location: '', category: isCoach ? '練習' : '考試', playerIds: [], note: '' });
   return (
@@ -269,7 +275,7 @@ function EventForm({ hub, playerId, playerName, onDone }: { hub: Hub; playerId: 
         <Field label="給誰看">
           <select value={scope} onChange={(e) => setScope(e.target.value as 'one' | 'all')}>
             <option value="one">只有 {playerName}</option>
-            <option value="all">{isCoach ? '全隊' : '我負責的全部學生'}</option>
+            <option value="all">{user?.role === 'office' ? '全體學生' : isCoach ? '全隊' : '我負責的全部學生'}</option>
           </select>
         </Field>
       </div>
@@ -330,7 +336,7 @@ function HubContent({ playerId }: { playerId: string }) {
   const hub = useHub(playerId);
   const [tab, setTab] = useState<Tab>('overview');
   const [editing, setEditing] = useState<SchoolRecord | null>(null);
-  const canWrite = user?.role === 'coach' || user?.role === 'teacher';
+  const canWrite = user?.role === 'coach' || user?.role === 'teacher' || user?.role === 'office';
   const data = hub.data;
 
   const notesRecent = useMemo(() => (data ? data.notes.filter((n) => n.date >= addDays(data.today, -13)).length : 0), [data]);
@@ -537,17 +543,148 @@ function HubContent({ playerId }: { playerId: string }) {
   );
 }
 
+/* ───────── 全部學生一覽 ───────── */
+function RosterView({ roster, onOpen }: { roster: ReturnType<typeof useRoster>; onOpen: (playerId: string) => void }) {
+  const [filter, setFilter] = useState('');
+  if (roster.loading)
+    return (
+      <Card>
+        <LoadingState text="讀取全部學生…" />
+      </Card>
+    );
+  if (roster.error) return <Alert kind="error">{roster.error}</Alert>;
+  const rows = roster.students.filter((s) => !filter || s.name.includes(filter) || s.grade.includes(filter));
+  return (
+    <Card title={`全部學生一覽（${roster.students.length} 位）`} icon="👥" actions={<input className="roster-filter" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="搜尋姓名或年級" aria-label="搜尋學生" />}>
+      <p className="muted small">點學生姓名可以看他的完整資料（溝通區、在校表現、筆記、課業、行程）。</p>
+      <div className="table-wrap">
+        <table className="roster-table">
+          <thead>
+            <tr>
+              <th>學生</th>
+              <th>最新留言</th>
+              <th>在校表現</th>
+              <th>近 14 天筆記</th>
+              <th>最近段考</th>
+              <th>7 天內行程</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s) => (
+              <tr key={s.playerId}>
+                <th scope="row">
+                  <button type="button" className="link-btn" onClick={() => onOpen(s.playerId)}>
+                    {s.name}
+                  </button>
+                  {s.grade && <div className="muted small">{s.grade}</div>}
+                </th>
+                <td className="small">{s.lastMessageAt ? `${formatDateTime(s.lastMessageAt)}・${s.lastMessageBy}` : '—'}</td>
+                <td className="small">
+                  {s.lastRecord ? (
+                    <>
+                      {formatDate(s.lastRecord.date)} {s.lastRecord.category} {s.lastRecord.rating && <Badge tone={RATING_TONE[s.lastRecord.rating] ?? 'gray'}>{s.lastRecord.rating}</Badge>}
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td>
+                  <Badge tone={s.notes14 >= 7 ? 'green' : s.notes14 > 0 ? 'yellow' : 'red'}>{s.notes14} 天</Badge>
+                </td>
+                <td className="small">{s.latestExam ? `${s.latestExam.label}・平均 ${s.latestExam.average ?? '—'}` : '—'}</td>
+                <td>{s.upcomingEvents || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+/* ───────── 群發訊息 ───────── */
+function BroadcastView({ roster }: { roster: ReturnType<typeof useRoster> }) {
+  const { user } = useStore();
+  const task = useTask();
+  const [picked, setPicked] = useState<string[]>([]);
+  const [filter, setFilter] = useState('');
+  const [body, setBody] = useState('');
+  const shown = roster.students.filter((s) => !filter || s.name.includes(filter) || s.grade.includes(filter));
+  const toggle = (id: string, on: boolean) => setPicked((p) => (on ? Array.from(new Set([...p, id])) : p.filter((x) => x !== id)));
+  if (roster.loading)
+    return (
+      <Card>
+        <LoadingState text="讀取學生名單…" />
+      </Card>
+    );
+  return (
+    <Card title="群發訊息" icon="📢">
+      <p className="muted small">
+        同一則訊息會一次放進每位勾選學生的溝通區，{user?.role === 'teacher' ? '全班家長' : '每位學生的家長、老師'}和教練都看得到；學生本人看不到。
+      </p>
+      <fieldset className="checks">
+        <legend>
+          發給哪些學生（已選 {picked.length} 位）
+        </legend>
+        <div className="check-tools">
+          <input className="check-filter" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="搜尋姓名或年級，例如：八年級" aria-label="搜尋學生" />
+          <button type="button" className="btn btn-sm" onClick={() => setPicked((p) => Array.from(new Set([...p, ...shown.map((s) => s.playerId)])))}>
+            ✅ 全選{filter ? '搜尋結果' : ''}（{shown.length}）
+          </button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPicked([])}>
+            全部取消
+          </button>
+        </div>
+        {shown.map((s) => (
+          <label key={s.playerId} className="check">
+            <input type="checkbox" checked={picked.includes(s.playerId)} onChange={(e) => toggle(s.playerId, e.target.checked)} />
+            {s.name}
+            {s.grade && <span className="muted small">（{s.grade}）</span>}
+          </label>
+        ))}
+      </fieldset>
+      <form
+        className="form"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!window.confirm(`確定把這則訊息發給 ${picked.length} 位學生的溝通區？`)) return;
+          const r = await task.run(() => roster.broadcast(picked, body.trim()), `已發送給 ${picked.length} 位學生的溝通區。`);
+          if (r.ok) {
+            setBody('');
+            setPicked([]);
+          }
+        }}
+      >
+        <Field label="訊息內容" hint="最多 1000 字">
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} maxLength={1000} placeholder="例如：本週五下午停課，請家長留意接送時間。" />
+        </Field>
+        <ActionFeedback action={task} />
+        <button type="submit" className="btn btn-primary" disabled={task.pending || picked.length === 0 || !body.trim()}>
+          📢 發送給 {picked.length} 位學生
+        </button>
+      </form>
+    </Card>
+  );
+}
+
+type View = 'roster' | 'broadcast' | 'student';
+
 export default function HubPage() {
   const { user } = useStore();
   const [params, setParams] = useSearchParams();
   const { players, loading, error } = usePlayers();
   const list = players.filter((p) => p.active || user?.role !== 'coach');
+  const multi = list.length > 1;
   const playerId = params.get('player') ?? list[0]?.id ?? '';
-  const subtitle = user?.role === 'parent' ? '和老師、教練一起關心孩子' : user?.role === 'teacher' ? '和家長、教練一起關心學生' : '和家長、老師一起關心球員';
+  const view: View = !multi ? 'student' : ((params.get('view') as View | null) ?? (params.get('player') ? 'student' : 'roster'));
+  const roster = useRoster(multi && view !== 'student');
+  const go = (v: View, pid?: string) => setParams(pid ? { view: v, player: pid } : { view: v }, { replace: true });
+  const subtitle =
+    user?.role === 'parent' ? '和老師、教練一起關心孩子' : user?.role === 'teacher' ? '和家長、教練一起關心學生' : user?.role === 'office' ? '查看全體學生狀況，統一發布訊息' : '和家長、老師一起關心球員';
   return (
     <div className="page">
       <PageHeader icon="🤝" title="親師平台" subtitle={subtitle} />
-      <Alert kind="info">🔒 這裡的溝通區與在校表現，只有這位學生的<strong>家長、老師和教練</strong>看得到，學生本人看不到。</Alert>
+      <Alert kind="info">🔒 這裡的溝通區與在校表現，只有這位學生的<strong>家長、老師、學務處和教練</strong>看得到，學生本人看不到。</Alert>
       {error && <Alert kind="error">{error}</Alert>}
       {loading ? (
         <Card>
@@ -559,10 +696,27 @@ export default function HubPage() {
         </Card>
       ) : (
         <>
-          {list.length > 1 && (
+          {multi && (
+            <div className="tabs view-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={view === 'roster'} className={`tab ${view === 'roster' ? 'active' : ''}`} onClick={() => go('roster')}>
+                👥 全部學生一覽
+              </button>
+              {user?.role !== 'parent' && (
+                <button type="button" role="tab" aria-selected={view === 'broadcast'} className={`tab ${view === 'broadcast' ? 'active' : ''}`} onClick={() => go('broadcast')}>
+                  📢 群發訊息
+                </button>
+              )}
+              <button type="button" role="tab" aria-selected={view === 'student'} className={`tab ${view === 'student' ? 'active' : ''}`} onClick={() => go('student', playerId)}>
+                👤 個別學生
+              </button>
+            </div>
+          )}
+          {view === 'roster' && <RosterView roster={roster} onOpen={(pid) => go('student', pid)} />}
+          {view === 'broadcast' && <BroadcastView roster={roster} />}
+          {view === 'student' && multi && (
             <Card>
               <Field label={user?.role === 'parent' ? '選擇孩子' : '選擇學生'}>
-                <select value={playerId} onChange={(e) => setParams({ player: e.target.value }, { replace: true })}>
+                <select value={playerId} onChange={(e) => go('student', e.target.value)}>
                   {list.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
@@ -573,7 +727,7 @@ export default function HubPage() {
               </Field>
             </Card>
           )}
-          {playerId && <HubContent key={playerId} playerId={playerId} />}
+          {view === 'student' && playerId && <HubContent key={playerId} playerId={playerId} />}
         </>
       )}
     </div>

@@ -14,7 +14,8 @@ const TEST_ACCOUNTS = [
   { loginId: 'test-player', role: 'player', displayName: '測試球員甲', code: 'TESTPLAYER', player: { name: '測試球員甲', number: '7', grade: '八年級', position: '投手' } },
   { loginId: 'test-player2', role: 'player', displayName: '測試球員乙', code: 'TESTPLAYER2', player: { name: '測試球員乙', number: '12', grade: '七年級', position: '捕手' } },
   { loginId: 'test-parent', role: 'parent', displayName: '測試家長', code: 'TESTPARENT', childOf: 'test-player' },
-  { loginId: 'test-teacher', role: 'teacher', displayName: '測試老師', code: 'TESTTEACHER1', childOf: 'test-player' },
+  { loginId: 'test-teacher', role: 'teacher', displayName: '測試老師', code: 'TESTTEACHER1', childOf: ['test-player', 'test-player2'] },
+  { loginId: 'test-office', role: 'office', displayName: '測試學務處', code: 'TESTOFFICE1' },
 ];
 
 const { gas, addExternal } = createGasEnv();
@@ -50,7 +51,7 @@ TEST_ACCOUNTS.forEach((a, i) => {
     displayName: a.displayName,
     role: a.role,
     playerId,
-    childPlayerIds: a.childOf ? playerIds[a.childOf] : '',
+    childPlayerIds: [].concat(a.childOf || []).map((k) => playerIds[k]).join(','),
     active: 'TRUE',
     codeSalt: salt,
     codeHash: gas.hashCode_(salt, a.code),

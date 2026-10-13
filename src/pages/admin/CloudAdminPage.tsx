@@ -99,7 +99,7 @@ function AccountsTab() {
   const createUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingUser) {
-      const r = await userTask.run(() => api('adminUpdateUser', { userId: editingUser, displayName: uForm.displayName, childPlayerIds: uForm.childPlayerIds }, '修改帳號'), '帳號已更新。');
+      const r = await userTask.run(() => api('adminUpdateUser', { userId: editingUser, displayName: uForm.displayName, role: uForm.role, childPlayerIds: uForm.childPlayerIds }, '修改帳號'), '帳號已更新。');
       if (r.ok) {
         resetUserForm();
         load();
@@ -265,7 +265,7 @@ function AccountsTab() {
         )}
       </Card>
 
-      <Card title={editingUser ? `修改帳號：${uForm.loginId}` : '新增教練、家長或老師帳號'} icon="🔑">
+      <Card title={editingUser ? `修改帳號：${uForm.loginId}` : '新增教練、家長、老師或學務處帳號'} icon="🔑">
         <form className="form" onSubmit={createUser}>
           <div className="grid-3 tight">
             <Field label="帳號" required hint={editingUser ? '帳號建立後不能修改' : '英文小寫、數字或 _ . -，3～30 字'}>
@@ -275,13 +275,15 @@ function AccountsTab() {
               <input value={uForm.displayName} onChange={(e) => setUForm({ ...uForm, displayName: e.target.value })} maxLength={30} />
             </Field>
             <Field label="角色">
-              <select value={uForm.role} disabled={!!editingUser} onChange={(e) => setUForm({ ...uForm, role: e.target.value as Role })}>
+              <select value={uForm.role} disabled={!!editingUser && uForm.role === 'coach'} onChange={(e) => setUForm({ ...uForm, role: e.target.value as Role })}>
                 <option value="parent">{ROLE_LABELS.parent}</option>
                 <option value="teacher">{ROLE_LABELS.teacher}</option>
-                <option value="coach">{ROLE_LABELS.coach}</option>
+                <option value="office">{ROLE_LABELS.office}（自動看得到全部學生）</option>
+                {(!editingUser || uForm.role === 'coach') && <option value="coach">{ROLE_LABELS.coach}</option>}
               </select>
             </Field>
           </div>
+          {uForm.role === 'office' && <p className="muted small">學務處帳號不用勾選學生，會自動看得到全部在籍學生（之後新增的學生也會自動加入），可以群發訊息、新增全體行程，也可以單獨留言。</p>}
           {(uForm.role === 'parent' || uForm.role === 'teacher') && (
             <fieldset className="checks">
               <legend>{uForm.role === 'teacher' ? '負責的學生' : '對應子女'}</legend>
@@ -393,7 +395,7 @@ function InvitesTab() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [invites, setInvites] = useState<Invite[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [form, setForm] = useState<{ role: 'parent' | 'teacher'; playerIds: string[]; label: string }>({ role: 'parent', playerIds: [], label: '' });
+  const [form, setForm] = useState<{ role: 'parent' | 'teacher' | 'office'; playerIds: string[]; label: string }>({ role: 'parent', playerIds: [], label: '' });
   const [issued, setIssued] = useState<{ code: string; invite: Invite } | null>(null);
   const [filter, setFilter] = useState('');
   const task = useTask();
@@ -419,7 +421,7 @@ function InvitesTab() {
     <>
       {issued && (
         <div className="code-box" role="status">
-          <strong>✉️ 邀請碼（{issued.invite.role === 'teacher' ? '老師' : '家長'}{issued.invite.label ? `：${issued.invite.label}` : ''}）</strong>
+          <strong>✉️ 邀請碼（{ROLE_LABELS[issued.invite.role]}{issued.invite.label ? `：${issued.invite.label}` : ''}）</strong>
           <div className="code-pair">
             <span>
               邀請碼：<code>{issued.code}</code>
@@ -451,15 +453,19 @@ function InvitesTab() {
         >
           <div className="grid-2 tight">
             <Field label="給誰">
-              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'parent' | 'teacher' })}>
+              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'parent' | 'teacher' | 'office' })}>
                 <option value="parent">家長</option>
                 <option value="teacher">老師</option>
+                <option value="office">學務處（自動看得到全部學生）</option>
               </select>
             </Field>
             <Field label="備註（方便自己辨認）">
               <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} maxLength={40} placeholder={form.role === 'teacher' ? '例如：八年三班導師' : '例如：周柏竣的媽媽'} />
             </Field>
           </div>
+          {form.role === 'office' ? (
+            <p className="muted small">學務處不用選學生，會自動看得到全部在籍學生。</p>
+          ) : (
           <fieldset className="checks">
             <legend>
               {form.role === 'teacher' ? '這位老師負責的學生' : '這位家長的孩子'}（已選 {form.playerIds.length} 位）
@@ -481,8 +487,9 @@ function InvitesTab() {
               </button>
             )}
           </fieldset>
+          )}
           <ActionFeedback action={task} />
-          <button type="submit" className="btn btn-primary" disabled={task.pending || form.playerIds.length === 0}>
+          <button type="submit" className="btn btn-primary" disabled={task.pending || (form.role !== 'office' && form.playerIds.length === 0)}>
             產生邀請碼
           </button>
         </form>
@@ -506,9 +513,9 @@ function InvitesTab() {
               <tbody>
                 {invites.map((i) => (
                   <tr key={i.id}>
-                    <td>{i.role === 'teacher' ? '老師' : '家長'}</td>
+                    <td>{ROLE_LABELS[i.role]}</td>
                     <td>{i.label || '—'}</td>
-                    <td>{i.playerIds.map(nameOf).join('、')}</td>
+                    <td>{i.role === 'office' ? '全部學生' : i.playerIds.map(nameOf).join('、')}</td>
                     <td>
                       <Badge tone={INVITE_STATUS[i.status][1]}>{INVITE_STATUS[i.status][0]}</Badge>
                     </td>

@@ -72,8 +72,8 @@ function Admin() {
   return mode === 'cloud' ? <CloudAdminPage /> : <AdminPage />;
 }
 
-const ALL: Role[] = ['coach', 'player', 'parent', 'teacher'];
-const GROWN_UPS: Role[] = ['coach', 'parent', 'teacher'];
+const ALL: Role[] = ['coach', 'player', 'parent', 'teacher', 'office'];
+const GROWN_UPS: Role[] = ['coach', 'parent', 'teacher', 'office'];
 
 const pageLoading = (
   <div className="boot">

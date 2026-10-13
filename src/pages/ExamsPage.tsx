@@ -319,7 +319,7 @@ export default function ExamsPage() {
 
   return (
     <div className="page">
-      <PageHeader icon="📝" title="段考成績" subtitle={isCoach ? '輸入與查看全隊的段考成績' : user?.role === 'parent' ? '查看孩子的段考成績' : user?.role === 'teacher' ? '查看負責學生的段考成績' : '查看自己的段考成績'} />
+      <PageHeader icon="📝" title="段考成績" subtitle={isCoach ? '輸入與查看全隊的段考成績' : user?.role === 'parent' ? '查看孩子的段考成績' : user?.role === 'teacher' ? '查看負責學生的段考成績' : user?.role === 'office' ? '查看全體學生的段考成績' : '查看自己的段考成績'} />
       <Alert kind="info">🔒 段考成績屬於個人資料：只有教練、球員本人、該球員的家長與老師看得到，由雲端伺服器檢查權限。成績只用來關心課業，不會影響遊戲。</Alert>
       {isCoach && (
         <div className="tabs" role="tablist">
@@ -342,7 +342,7 @@ export default function ExamsPage() {
         <>
           {picker && players.length > 0 && (
             <Card>
-              <Field label={user?.role === 'parent' ? '選擇孩子' : user?.role === 'teacher' ? '選擇學生' : '選擇球員'}>
+              <Field label={user?.role === 'parent' ? '選擇孩子' : user?.role === 'teacher' || user?.role === 'office' ? '選擇學生' : '選擇球員'}>
                 <select value={playerId} onChange={(e) => setParams({ player: e.target.value }, { replace: true })}>
                   {players.map((p) => (
                     <option key={p.id} value={p.id}>

@@ -1,6 +1,6 @@
 // 資料型別：欄位設計對應第二階段要建立的 Google 試算表工作表
 
-export type Role = 'coach' | 'player' | 'parent' | 'teacher';
+export type Role = 'coach' | 'player' | 'parent' | 'teacher' | 'office';
 
 /** Users 工作表：使用者及角色對應 */
 export interface User {
@@ -255,7 +255,7 @@ export interface Opponent {
 /** Invites 工作表：教練產生的邀請碼（邀請碼本身只在產生時顯示一次） */
 export interface Invite {
   id: string;
-  role: 'parent' | 'teacher';
+  role: 'parent' | 'teacher' | 'office';
   playerIds: string[];
   label: string;
   status: 'active' | 'used' | 'revoked' | 'expired';
@@ -275,6 +275,9 @@ export interface HubMessage {
   authorRole: Role;
   body: string;
   createdAt: string;
+  /** 群發的訊息有相同的 batchId；batchSize＝當時發給幾位學生 */
+  batchId: string;
+  batchSize: number;
 }
 
 /** SchoolRecords 工作表：在校表現紀錄（老師、教練填寫） */

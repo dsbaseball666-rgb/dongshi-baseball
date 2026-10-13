@@ -81,6 +81,7 @@ const MATRIX: Record<Role, Permission[]> = {
   ],
   parent: ['rules.read', 'knowledge.read', 'announcement.read'],
   teacher: ['rules.read', 'announcement.read'],
+  office: ['rules.read', 'announcement.read'],
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -88,9 +89,10 @@ export const ROLE_LABELS: Record<Role, string> = {
   player: '球員',
   parent: '家長',
   teacher: '老師',
+  office: '學務處',
 };
 
-export const ALL_ROLES: Role[] = ['coach', 'player', 'parent', 'teacher'];
+export const ALL_ROLES: Role[] = ['coach', 'player', 'parent', 'teacher', 'office'];
 
 export function rolePermissions(role: Role): Permission[] {
   return MATRIX[role];

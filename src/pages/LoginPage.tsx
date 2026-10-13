@@ -11,6 +11,7 @@ const ROLE_DESC: Record<Role, string> = {
   player: '寫每日筆記、設定目標、查看自己的體能紀錄、執行任務並培養怪獸。',
   parent: '閱讀球隊規章、防護知識與開放給家長的公告。',
   teacher: '在親師平台與家長、教練溝通，記錄學生在校表現。',
+  office: '查看全體學生狀況，統一發布訊息與行程。',
 };
 
 function CloudLogin() {
@@ -45,7 +46,7 @@ function CloudLogin() {
       </form>
       <p className="muted small">忘記登入碼請找教練重設。連續輸入錯誤 5 次會暫停登入 10 分鐘。</p>
       <Link to="/register" className="btn btn-gold register-link">
-        ✉️ 我是家長／老師，有邀請碼 → 建立帳號
+        ✉️ 我是家長／老師／學務處，有邀請碼 → 建立帳號
       </Link>
     </section>
   );

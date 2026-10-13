@@ -187,7 +187,7 @@ export default function CloudHomePage() {
       : []),
     ...(user.role === 'coach' || user.role === 'player' ? [{ to: '/dex', icon: '📖', label: '怪獸圖鑑' }] : []),
     { to: '/rules', icon: '📜', label: '球隊規章' },
-    ...(user.role !== 'teacher' ? [{ to: '/knowledge', icon: '⛑️', label: '防護知識' }] : []),
+    ...(user.role !== 'teacher' && user.role !== 'office' ? [{ to: '/knowledge', icon: '⛑️', label: '防護知識' }] : []),
     { to: '/announcements', icon: '📣', label: '球隊公告' },
     ...(user.role === 'coach' ? [{ to: '/admin', icon: '🛠️', label: '教練後台' }] : []),
     { to: '/account', icon: '🔑', label: '我的帳號' },
@@ -203,7 +203,7 @@ export default function CloudHomePage() {
           </p>
           {grownUp && user.role !== 'coach' && (
             <Link to="/hub" className="btn btn-primary">
-              🤝 進入親師平台：{user.role === 'parent' ? '看孩子的溝通、學習、課業與行程' : '和家長、教練溝通，記錄在校表現'}
+              🤝 進入親師平台：{user.role === 'parent' ? '看孩子的溝通、學習、課業與行程' : user.role === 'office' ? '查看全體學生、統一發布訊息' : '和家長、教練溝通，記錄在校表現'}
             </Link>
           )}
           {user.role === 'parent' && <p className="muted small">家長可以在親師平台和老師、教練溝通，查看孩子的學習狀況、課業與行程，也可閱讀球隊規章、防護知識與開放給家長的公告；無法修改球員的體能資料、遊戲獎勵或管理設定。</p>}

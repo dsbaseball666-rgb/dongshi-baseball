@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.4.0';
+const API_VERSION = '5.5.0';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -48,7 +48,7 @@ const SCHEMA = {
   Battles: ['id', 'playerId', 'mode', 'opponentPlayerId', 'opponentName', 'date', 'status', 'state', 'log', 'result', 'createdAt', 'updatedAt'],
   // 5.4：家長、老師、教練三方平台
   Invites: ['id', 'codeSalt', 'codeHash', 'role', 'playerIds', 'label', 'status', 'createdById', 'createdBy', 'createdAt', 'expiresAt', 'usedBy', 'usedAt'],
-  Messages: ['id', 'playerId', 'authorId', 'authorName', 'authorRole', 'body', 'createdAt'],
+  Messages: ['id', 'playerId', 'authorId', 'authorName', 'authorRole', 'body', 'createdAt', 'batchId', 'batchSize'],
   SchoolRecords: ['id', 'playerId', 'date', 'category', 'rating', 'content', 'authorId', 'authorName', 'authorRole', 'createdAt', 'updatedAt'],
   Events: ['id', 'title', 'date', 'startTime', 'endTime', 'location', 'category', 'playerIds', 'note', 'createdById', 'createdBy', 'createdAt', 'updatedAt'],
 };
@@ -132,11 +132,13 @@ const PUBLISH_STATUSES = ['draft', 'published', 'archived'];
 // ───────────────────────── 路由 ─────────────────────────
 // roles：可以呼叫這個 API 的角色。伺服器在執行前統一檢查，函式內部仍會再檢查資料擁有權。
 
-const ALL_ROLES = ['coach', 'player', 'parent', 'teacher'];
+const ALL_ROLES = ['coach', 'player', 'parent', 'teacher', 'office'];
 const COACH = ['coach'];
 const COACH_PLAYER = ['coach', 'player'];
 // 三方平台（家長、老師、教練）；學生本人不能看溝通區與在校紀錄
-const HUB = ['coach', 'parent', 'teacher'];
+const HUB = ['coach', 'parent', 'teacher', 'office'];
+// 學務處（office）：自動看得到全部學生，可以統一發布訊息與行程
+const STAFF = ['coach', 'teacher', 'office'];
 
 const ROUTES = {
   ping: { public: true, fn: () => ({ service: 'dongshi-baseball-api', version: API_VERSION, today: today_() }) },
@@ -217,11 +219,12 @@ const ROUTES = {
   hubSummary: { roles: HUB, fn: hubSummary_ },
   postMessage: { roles: HUB, write: true, fn: postMessage_ },
   deleteMessage: { roles: HUB, write: true, fn: deleteMessage_ },
-  saveSchoolRecord: { roles: ['coach', 'teacher'], write: true, fn: saveSchoolRecord_ },
-  deleteSchoolRecord: { roles: ['coach', 'teacher'], write: true, fn: deleteSchoolRecord_ },
+  hubRoster: { roles: HUB, fn: hubRoster_ },
+  saveSchoolRecord: { roles: STAFF, write: true, fn: saveSchoolRecord_ },
+  deleteSchoolRecord: { roles: STAFF, write: true, fn: deleteSchoolRecord_ },
   listEvents: { roles: ALL_ROLES, fn: listEvents_ },
-  saveEvent: { roles: ['coach', 'teacher'], write: true, fn: saveEvent_ },
-  deleteEvent: { roles: ['coach', 'teacher'], write: true, fn: deleteEvent_ },
+  saveEvent: { roles: STAFF, write: true, fn: saveEvent_ },
+  deleteEvent: { roles: STAFF, write: true, fn: deleteEvent_ },
   adminSetUserActive: { roles: COACH, write: true, fn: adminSetUserActive_ },
   listAudit: { roles: COACH, fn: listAudit_ },
   adminCreatePlayerAccount: { roles: COACH, write: true, fn: adminCreatePlayerAccount_ },
@@ -374,7 +377,7 @@ function requireCanReadPlayer_(actor, playerId) {
 function listPlayers_(ctx) {
   const a = ctx.actor;
   const all = readAll_('Players').map(parsePlayer_);
-  if (a.role === 'coach') return { players: all };
+  if (seesAllStudents_(a)) return { players: all };
   if (a.role === 'player') return { players: all.filter((p) => p.id === a.playerId) };
   const kids = a.childPlayerIds ? a.childPlayerIds.split(',') : [];
   return { players: all.filter((p) => kids.indexOf(p.id) >= 0) };
@@ -1449,10 +1452,10 @@ function adminCreateUser_(ctx) {
   requireRole_(a, ['coach']);
   const p = ctx.payload;
   const role = p.role;
-  if (['coach', 'parent', 'teacher'].indexOf(role) < 0) throw apiError_('INVALID', '這裡只能建立教練、家長或老師帳號；球員帳號請用「新增球員」。');
+  if (['coach', 'parent', 'teacher', 'office'].indexOf(role) < 0) throw apiError_('INVALID', '這裡只能建立教練、家長、老師或學務處帳號；球員帳號請用「新增球員」。');
   const loginId = validLoginId_(p.loginId);
   const displayName = str_(p.displayName, '顯示名稱', { required: true, max: 30 });
-  const kids = role === 'coach' ? '' : linkedPlayerIds_(p.childPlayerIds, role);
+  const kids = role === 'parent' || role === 'teacher' ? linkedPlayerIds_(p.childPlayerIds, role) : '';
   const account = createUser_({ loginId: loginId, displayName: displayName, role: role, playerId: '', childPlayerIds: kids });
   audit_(a, '新增帳號', account.id, displayName + '（' + role + '）');
   return { userId: account.id, loginId: account.loginId, code: account.code };
@@ -1490,9 +1493,18 @@ function adminUpdateUser_(ctx) {
   if (!u) throw apiError_('NOT_FOUND', '找不到這個帳號。');
   if (u.role === 'player') throw apiError_('INVALID', '球員帳號請在球員名單中修改。');
   const changes = { displayName: str_(p.displayName, '顯示名稱', { required: true, max: 30 }), updatedAt: nowIso_() };
-  if (u.role === 'parent' || u.role === 'teacher') changes.childPlayerIds = linkedPlayerIds_(p.childPlayerIds, u.role);
+  // 家長、老師、學務處之間可以互換角色（例如把原本用老師帳號建立的學務處改成學務處）
+  const swappable = ['parent', 'teacher', 'office'];
+  let role = u.role;
+  if (p.role && p.role !== u.role) {
+    if (swappable.indexOf(u.role) < 0 || swappable.indexOf(p.role) < 0) throw apiError_('INVALID', '只有家長、老師、學務處之間可以變更角色。');
+    role = p.role;
+    changes.role = role;
+  }
+  if (role === 'parent' || role === 'teacher') changes.childPlayerIds = linkedPlayerIds_(p.childPlayerIds, role);
+  else if (role === 'office') changes.childPlayerIds = '';
   updateRow_('Users', u._row, Object.assign({}, u, changes));
-  audit_(a, '修改帳號', u.id, changes.displayName + (changes.childPlayerIds ? '（對應學生：' + changes.childPlayerIds + '）' : ''));
+  audit_(a, '修改帳號', u.id, changes.displayName + (changes.role ? '（角色改為 ' + ROLE_NAMES[changes.role] + '）' : '') + (changes.childPlayerIds ? '（對應學生：' + changes.childPlayerIds + '）' : ''));
   return { userId: id };
 }
 
@@ -1767,17 +1779,21 @@ function linkedIds_(actor) {
   return (actor.childPlayerIds || '').split(',').filter(String);
 }
 
-/** 可以讀取這位球員段考成績的人：教練、球員本人、該球員的家長與老師 */
-function requireCanReadExam_(actor, playerId) {
-  if (actor.role === 'coach') return;
-  if (actor.role === 'player' && actor.playerId === playerId) return;
-  if ((actor.role === 'parent' || actor.role === 'teacher') && linkedIds_(actor).indexOf(playerId) >= 0) return;
-  throw apiError_('FORBIDDEN', '只能查看自己（或自己子女、自己負責的學生）的成績。');
+/** 教練與學務處看得到全部學生 */
+function seesAllStudents_(actor) {
+  return actor.role === 'coach' || actor.role === 'office';
 }
 
-/** 三方平台：教練看全部；家長看子女；老師看自己負責的學生 */
+/** 可以讀取這位球員段考成績的人：教練、學務處、球員本人、該球員的家長與老師 */
+function requireCanReadExam_(actor, playerId) {
+  if (seesAllStudents_(actor)) return;
+  if (actor.role === 'player' && actor.playerId === playerId) return;
+  if ((actor.role === 'parent' || actor.role === 'teacher') && linkedIds_(actor).indexOf(playerId) >= 0) return;
+  throw apiError_('FORBIDDEN', '只能查看自己（或自己子女、自己負責的學生）的成績。');}
+
+/** 三方平台：教練、學務處看全部；家長看子女；老師看自己負責的學生 */
 function requireHubAccess_(actor, playerId) {
-  if (actor.role === 'coach') return;
+  if (seesAllStudents_(actor)) return;
   if ((actor.role === 'parent' || actor.role === 'teacher') && linkedIds_(actor).indexOf(playerId) >= 0) return;
   throw apiError_('FORBIDDEN', '只能查看自己子女（或自己負責的學生）的資料。');
 }
@@ -1793,7 +1809,7 @@ function parseExam_(r) {
 function listExamScores_(ctx) {
   const a = ctx.actor;
   const playerId = str_(ctx.payload.playerId, '球員', { max: 20 });
-  if (!playerId && a.role !== 'coach') throw apiError_('FORBIDDEN', '只能查看自己（或自己子女）的成績。');
+  if (!playerId && !seesAllStudents_(a)) throw apiError_('FORBIDDEN', '只能查看自己（或自己子女）的成績。');
   if (playerId) requireCanReadExam_(a, playerId);
   return { records: readAll_('ExamScores').filter((r) => !playerId || r.playerId === playerId).map(parseExam_) };
 }
@@ -2279,8 +2295,8 @@ function parseInvite_(r) {
 function adminCreateInvite_(ctx) {
   const a = ctx.actor;
   const p = ctx.payload;
-  if (p.role !== 'parent' && p.role !== 'teacher') throw apiError_('INVALID', '邀請碼只能給家長或老師使用。');
-  const playerIds = linkedPlayerIds_(p.playerIds, p.role);
+  if (['parent', 'teacher', 'office'].indexOf(p.role) < 0) throw apiError_('INVALID', '邀請碼只能給家長、老師或學務處使用。');
+  const playerIds = p.role === 'office' ? '' : linkedPlayerIds_(p.playerIds, p.role);
   const label = str_(p.label, '備註', { max: 40 });
   const code = randomCode_();
   const salt = Utilities.getUuid();
@@ -2290,7 +2306,7 @@ function adminCreateInvite_(ctx) {
     createdById: a.id, createdBy: a.displayName, createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + INVITE_DAYS * 86400000).toISOString(), usedBy: '', usedAt: '',
   };
   appendRow_('Invites', row);
-  audit_(a, '產生邀請碼', row.id, (p.role === 'teacher' ? '老師' : '家長') + (label ? '（' + label + '）' : ''));
+  audit_(a, '產生邀請碼', row.id, ROLE_NAMES[p.role] + (label ? '（' + label + '）' : ''));
   return { invite: parseInvite_(stringify_(row)), code: code };
 }
 
@@ -2327,7 +2343,7 @@ function register_(ctx) {
   const acc = createUser_({ loginId: loginId, displayName: displayName, role: invite.role, playerId: '', childPlayerIds: invite.playerIds }, password);
   updateRow_('Invites', invite._row, Object.assign({}, invite, { status: 'used', usedBy: acc.id, usedAt: now }));
   const u = readAll_('Users').find((x) => x.id === acc.id);
-  audit_(u, '用邀請碼建立帳號', acc.id, displayName + '（' + (invite.role === 'teacher' ? '老師' : '家長') + '）');
+  audit_(u, '用邀請碼建立帳號', acc.id, displayName + '（' + ROLE_NAMES[invite.role] + '）');
   return { token: newSession_(u), user: publicUser_(u) };
 }
 
@@ -2336,10 +2352,13 @@ function register_(ctx) {
 const SCHOOL_CATEGORIES = ['上課表現', '作業繳交', '學習態度', '出缺席', '品德行為', '其他'];
 const SCHOOL_RATINGS = ['', '優良', '良好', '普通', '待加強'];
 const EVENT_CATEGORIES = ['練習', '比賽', '考試', '學校活動', '集合出發', '其他'];
-const ROLE_NAMES = { coach: '教練', player: '球員', parent: '家長', teacher: '老師' };
+const ROLE_NAMES = { coach: '教練', player: '球員', parent: '家長', teacher: '老師', office: '學務處' };
 
 function parseMessage_(r) {
-  return { id: r.id, playerId: r.playerId, authorId: r.authorId, authorName: r.authorName, authorRole: r.authorRole, body: r.body, createdAt: r.createdAt };
+  return {
+    id: r.id, playerId: r.playerId, authorId: r.authorId, authorName: r.authorName, authorRole: r.authorRole, body: r.body, createdAt: r.createdAt,
+    batchId: r.batchId || '', batchSize: Number(r.batchSize) || 0,
+  };
 }
 
 function parseSchoolRecord_(r) {
@@ -2364,7 +2383,7 @@ function eventFor_(e, playerId) {
 /** 依角色可以看到的行程：教練全部；球員自己的與全隊的；家長、老師是子女／學生的與全隊的 */
 function visibleEvents_(actor) {
   const all = readAll_('Events').map(parseEvent_);
-  if (actor.role === 'coach') return all;
+  if (seesAllStudents_(actor)) return all;
   const mine = actor.role === 'player' ? [actor.playerId] : linkedIds_(actor);
   return all.filter((e) => e.playerIds.length === 0 || e.playerIds.some((id) => mine.indexOf(id) >= 0) || e.createdById === actor.id);
 }
@@ -2391,7 +2410,7 @@ function timeStr_(v, label) {
   return s;
 }
 
-/** 新增／修改行程：教練可以設全隊或指定學生；老師只能設給自己負責的學生 */
+/** 新增／修改行程：教練、學務處可以設全隊或指定學生；老師只能設給自己負責的學生 */
 function saveEvent_(ctx) {
   const a = ctx.actor;
   const p = ctx.payload;
@@ -2435,25 +2454,85 @@ function deleteEvent_(ctx) {
   return { deleted: r.id };
 }
 
-/** 溝通區留言：只有這位學生的家長、老師與教練看得到（學生本人看不到） */
+/**
+ * 溝通區留言：只有這位學生的家長、老師、學務處與教練看得到（學生本人看不到）。
+ * playerIds 有多位時是「群發」：同一則訊息一次放進每位學生的溝通區（家長只能發給自己的孩子）。
+ */
 function postMessage_(ctx) {
   const a = ctx.actor;
-  const playerId = str_(ctx.payload.playerId, '學生', { required: true, max: 20 });
-  requireHubAccess_(a, playerId);
-  if (!readAll_('Players').some((x) => x.id === playerId)) throw apiError_('NOT_FOUND', '找不到這位學生。');
-  const row = { id: newId_('MS'), playerId: playerId, authorId: a.id, authorName: a.displayName, authorRole: a.role, body: str_(ctx.payload.body, '留言內容', { required: true, max: 1000 }), createdAt: nowIso_() };
-  appendRow_('Messages', row);
-  return { message: parseMessage_(stringify_(row)) };
+  const raw = Array.isArray(ctx.payload.playerIds) ? ctx.payload.playerIds : [ctx.payload.playerId];
+  const ids = raw.map((v) => str_(v, '學生', { required: true, max: 20 })).filter((v, i, arr) => arr.indexOf(v) === i);
+  if (ids.length === 0) throw apiError_('INVALID', '請選擇至少一位學生。');
+  if (ids.length > 200) throw apiError_('INVALID', '一次最多發給 200 位學生。');
+  ids.forEach((id) => requireHubAccess_(a, id));
+  const players = readAll_('Players');
+  if (ids.some((id) => !players.some((x) => x.id === id))) throw apiError_('NOT_FOUND', '找不到指定的學生。');
+  const body = str_(ctx.payload.body, '留言內容', { required: true, max: 1000 });
+  const now = nowIso_();
+  const batchId = ids.length > 1 ? newId_('MB') : '';
+  const rows = ids.map((id) => ({ id: newId_('MS'), playerId: id, authorId: a.id, authorName: a.displayName, authorRole: a.role, body: body, createdAt: now, batchId: batchId, batchSize: ids.length > 1 ? ids.length : '' }));
+  appendRows_('Messages', rows);
+  return { message: parseMessage_(stringify_(rows[0])), messages: rows.map((r) => parseMessage_(stringify_(r))), sent: rows.length };
 }
 
-/** 刪除留言：自己的留言，或教練 */
+/** 刪除留言：自己的留言，或教練。wholeBatch：群發的訊息從所有學生的溝通區一起刪除 */
 function deleteMessage_(ctx) {
   const a = ctx.actor;
-  const r = readAll_('Messages').find((x) => x.id === str_(ctx.payload.id, '留言', { required: true, max: 40 }));
+  const all = readAll_('Messages');
+  const r = all.find((x) => x.id === str_(ctx.payload.id, '留言', { required: true, max: 40 }));
   if (!r) throw apiError_('NOT_FOUND', '找不到這則留言。');
   if (a.role !== 'coach' && r.authorId !== a.id) throw apiError_('FORBIDDEN', '只能刪除自己的留言。');
-  deleteRow_('Messages', r._row);
-  return { deleted: r.id };
+  const targets = ctx.payload.wholeBatch === true && r.batchId ? all.filter((x) => x.batchId === r.batchId) : [r];
+  targets.map((x) => x._row).sort((x, y) => y - x).forEach((row) => deleteRow_('Messages', row));
+  return { deleted: r.id, count: targets.length };
+}
+
+/**
+ * 全部學生一覽：每位學生的最新狀況（一次讀完）。
+ * 教練、學務處：全部在籍學生；老師：負責的學生；家長：自己的孩子。
+ */
+function hubRoster_(ctx) {
+  const a = ctx.actor;
+  const today = today_();
+  const since14 = addDaysStr_(today, -13);
+  const mine = linkedIds_(a);
+  const players = readAll_('Players').filter((p) => p.active === 'TRUE' && (seesAllStudents_(a) || mine.indexOf(p.id) >= 0));
+  const ids = {};
+  players.forEach((p) => (ids[p.id] = true));
+  const pick = (name) => readAll_(name).filter((r) => ids[r.playerId]);
+  const lastBy = (rows, field) => {
+    const m = {};
+    rows.forEach((r) => {
+      if (!m[r.playerId] || m[r.playerId][field] < r[field]) m[r.playerId] = r;
+    });
+    return m;
+  };
+  const lastMsg = lastBy(pick('Messages'), 'createdAt');
+  const lastRec = lastBy(pick('SchoolRecords'), 'date');
+  const notes = pick('DailyNotes').filter((n) => n.date >= since14);
+  const exams = pick('ExamScores').map(parseExam_);
+  const latestExam = {};
+  exams.forEach((e) => {
+    const k = e.schoolYear * 100 + (e.semester === '上' ? 0 : 10) + e.examNo;
+    if (!latestExam[e.playerId] || latestExam[e.playerId].k < k) latestExam[e.playerId] = { k: k, e: e };
+  });
+  const events = visibleEvents_(a).filter((e) => e.date >= today && e.date <= addDaysStr_(today, 7));
+  return {
+    today: today,
+    students: players.map((p) => {
+      const ex = latestExam[p.id] && latestExam[p.id].e;
+      const vals = ex ? Object.keys(ex.scores).map((k) => ex.scores[k]) : [];
+      return {
+        playerId: p.id, name: p.name, grade: p.grade, number: p.number,
+        lastMessageAt: lastMsg[p.id] ? lastMsg[p.id].createdAt : '',
+        lastMessageBy: lastMsg[p.id] ? lastMsg[p.id].authorName : '',
+        lastRecord: lastRec[p.id] ? { date: lastRec[p.id].date, category: lastRec[p.id].category, rating: lastRec[p.id].rating } : null,
+        notes14: notes.filter((n) => n.playerId === p.id).length,
+        latestExam: ex ? { label: ex.schoolYear + ex.semester + ' 第' + ex.examNo + '次', average: vals.length ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null } : null,
+        upcomingEvents: events.filter((e) => eventFor_(e, p.id)).length,
+      };
+    }),
+  };
 }
 
 /** 在校表現紀錄：老師（自己負責的學生）與教練可以新增；只能修改自己寫的（教練可修改全部） */
@@ -2826,13 +2905,15 @@ function runSelfTests() {
     const tParent = call('login', { loginId: parentAcc.loginId, code: parentAcc.code }).data.token;
     const teacherAcc = mk('test-teacher-' + Date.now(), 'teacher', '', 'TEST-PA');
     const tTeacher = call('login', { loginId: teacherAcc.loginId, code: teacherAcc.code }).data.token;
+    const officeAcc = mk('test-office-' + Date.now(), 'office');
+    const tOffice = call('login', { loginId: officeAcc.loginId, code: officeAcc.code }).data.token;
     results.push([!!(tCoach && tA && tB && tParent), '正確登入碼可以登入', '']);
     expectFail('沒有 token 無法讀取資料', call('listNotes', { playerId: 'TEST-PA' }), 'AUTH');
     expectFail('偽造 token 無法讀取資料', call('listNotes', { playerId: 'TEST-PA' }, 'x'.repeat(64)), 'AUTH');
 
     // 1-1. 每個 API 的授權（依 ROUTES 自動產生，新增 API 時也會自動被檢查）
-    const tokenOf = { coach: tCoach, player: tA, parent: tParent, teacher: tTeacher };
-    const roleName = { coach: '教練', player: '球員', parent: '家長', teacher: '老師' };
+    const tokenOf = { coach: tCoach, player: tA, parent: tParent, teacher: tTeacher, office: tOffice };
+    const roleName = { coach: '教練', player: '球員', parent: '家長', teacher: '老師', office: '學務處' };
     Object.keys(ROUTES).forEach((action) => {
       const route = ROUTES[action];
       if (route.public) return;
@@ -3236,6 +3317,42 @@ function runSelfTests() {
     expectFail('老師不能輸入段考成績', call('saveExamScores', { schoolYear: 115, semester: '上', examNo: 1, grade: 8, entries: [] }, tTeacher), 'FORBIDDEN');
     expectOk('教練可以刪除任何留言', call('deleteMessage', { id: msg.data.message.id }, tCoach, Utilities.getUuid()));
 
+    // 21. 群發訊息與學務處
+    const tParPB = (() => {
+      const acc = mk('test-parent-' + (Date.now() + 1), 'parent', '', 'TEST-PB');
+      return call('login', { loginId: acc.loginId, code: acc.code }).data.token;
+    })();
+    const tch2 = readAll_('Users').find((u) => u.id === teacherAcc.id);
+    updateRow_('Users', tch2._row, Object.assign({}, tch2, { childPlayerIds: 'TEST-PA,TEST-PB' }));
+    const bc = call('postMessage', { playerIds: ['TEST-PA', 'TEST-PB'], body: '全班明天戶外教學' }, tTeacher, Utilities.getUuid());
+    results.push([bc.ok && bc.data.sent === 2, '老師可以一次群發訊息給全班學生', bc.ok ? '' : bc.error]);
+    const seenA = call('hubSummary', { playerId: 'TEST-PA' }, tPar).data.messages.some((m) => m.batchId && m.body === '全班明天戶外教學');
+    const seenB = call('hubSummary', { playerId: 'TEST-PB' }, tParPB).data.messages.some((m) => m.batchId && m.batchSize === 2);
+    results.push([seenA && seenB, '群發的訊息兩位學生的家長都看得到', '']);
+    expectFail('家長不能群發給別人的孩子', call('postMessage', { playerIds: ['TEST-PA', 'TEST-PB'], body: 'x' }, tPar), 'FORBIDDEN');
+    expectFail('沒有選學生不能群發', call('postMessage', { playerIds: [], body: 'x' }, tTeacher), 'INVALID');
+    const delB = call('deleteMessage', { id: bc.data.message.id, wholeBatch: true }, tTeacher, Utilities.getUuid());
+    results.push([delB.ok && delB.data.count === 2 && !readAll_('Messages').some((m) => m.batchId && m.batchId === bc.data.messages[0].batchId), '群發的訊息可以一次從全部學生刪除', delB.ok ? '' : delB.error]);
+    const offHub = call('hubSummary', { playerId: 'TEST-PB' }, tOffice);
+    expectOk('學務處不用勾選，就看得到每位學生的平台資料', offHub);
+    const offAll = call('postMessage', { playerIds: ['TEST-PA', 'TEST-PB'], body: '學務處統一公告' }, tOffice, Utilities.getUuid());
+    expectOk('學務處可以統一發布訊息', offAll);
+    expectOk('學務處也可以單獨留言給一位學生', call('postMessage', { playerId: 'TEST-PA', body: '個別提醒' }, tOffice, Utilities.getUuid()));
+    const offEv = call('saveEvent', { title: '測試全校活動', date: today, category: '學校活動', playerIds: [] }, tOffice, Utilities.getUuid());
+    results.push([offEv.ok && offEv.data.event.playerIds.length === 0, '學務處可以新增全體行程', offEv.ok ? '' : offEv.error]);
+    expectOk('學務處可以寫在校表現', call('saveSchoolRecord', { playerId: 'TEST-PB', date: today, category: '品德行為', content: '熱心服務' }, tOffice, Utilities.getUuid()));
+    expectOk('學務處可以看段考成績', call('listExamScores', { playerId: 'TEST-PB' }, tOffice));
+    expectFail('學務處不能使用教練後台', call('adminListUsers', {}, tOffice), 'FORBIDDEN');
+    const rosterT = call('hubRoster', {}, tTeacher);
+    const rosterP = call('hubRoster', {}, tPar);
+    const rosterO = call('hubRoster', {}, tOffice);
+    results.push([rosterT.ok && rosterT.data.students.length === 2 && rosterP.ok && rosterP.data.students.length === 1 && rosterO.ok && rosterO.data.students.length >= 2, '全部學生一覽：老師看負責的、家長看自己孩子、學務處看全部', '']);
+    const rA = rosterO.data.students.find((s) => s.playerId === 'TEST-PA');
+    results.push([rA && rA.lastMessageBy === officeAcc.loginId.replace(/^/, '測試') && rA.notes14 >= 1, '全部學生一覽有最新留言與筆記次數', rA ? rA.lastMessageBy : '']);
+    const swap = call('adminUpdateUser', { userId: teacherAcc.id, displayName: '測試轉學務處', role: 'office' }, tCoach, Utilities.getUuid());
+    results.push([swap.ok && readAll_('Users').find((u) => u.id === teacherAcc.id).role === 'office', '教練可以把老師帳號改成學務處', swap.ok ? '' : swap.error]);
+    expectFail('教練帳號不能被改成其他角色', call('adminUpdateUser', { userId: coachAcc.id, displayName: 'x', role: 'office' }, tCoach), 'INVALID');
+
     expectFail('每天的野外對戰次數有上限', call('startBattle', { mode: 'pve', areaId: 'field', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
 
     // 6. 停用帳號立即失效
@@ -3280,7 +3397,7 @@ const TEST_LOG_SHEET = '自動測試結果';
  * 刪除測試資料。除了這次建立的，也會清掉「上次測試中途被停止」而留下的資料：
  * TEST- 開頭的資料、自動測試帳號（test-coach-數字 這類帳號）、自動測試的文章與公告。
  */
-const TEST_LOGIN_PATTERN = /^test-(coach|pa|pb|pc|pd|parent|teacher|reg)-\d{10,}$/;
+const TEST_LOGIN_PATTERN = /^test-(coach|pa|pb|pc|pd|parent|teacher|office|reg)-\d{10,}$/;
 
 function cleanupTestData_(created) {
   const testUsers = created.users.concat(readAll_('Users').filter((u) => TEST_LOGIN_PATTERN.test(u.loginId)).map((u) => u.id));
