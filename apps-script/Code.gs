@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.2.0';
+const API_VERSION = '5.3.0';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -200,6 +200,7 @@ const ROUTES = {
   adminUpdateUser: { roles: COACH, write: true, fn: adminUpdateUser_ },
   adminResetCode: { roles: COACH, write: true, fn: adminResetCode_ },
   adminSetPlayerActive: { roles: COACH, write: true, fn: adminSetPlayerActive_ },
+  adminDeletePlayer: { roles: COACH, write: true, fn: adminDeletePlayer_ },
   adminSetUserActive: { roles: COACH, write: true, fn: adminSetUserActive_ },
   listAudit: { roles: COACH, fn: listAudit_ },
   adminCreatePlayerAccount: { roles: COACH, write: true, fn: adminCreatePlayerAccount_ },
@@ -1490,6 +1491,37 @@ function adminSetPlayerActive_(ctx) {
     .forEach((u) => updateRow_('Users', u._row, Object.assign({}, u, { active: active ? 'TRUE' : 'FALSE', updatedAt: nowIso_() })));
   audit_(a, active ? '啟用球員' : '停用球員', id, p.name);
   return { playerId: id, active: active };
+}
+
+/**
+ * 永久刪除球員：連同球員帳號與這位球員的所有資料（筆記、體能、目標、段考、遊戲紀錄）一起刪除，
+ * 並把他從家長帳號的子女清單移除。必須輸入球員姓名確認。刪除後無法復原（只能從備份找回）。
+ */
+function adminDeletePlayer_(ctx) {
+  const a = ctx.actor;
+  const id = str_(ctx.payload.playerId, '球員', { required: true, max: 20 });
+  const p = readAll_('Players').find((x) => x.id === id);
+  if (!p) throw apiError_('NOT_FOUND', '找不到這位球員。');
+  if (str_(ctx.payload.confirmName, '確認姓名', { max: 30 }) !== p.name) throw apiError_('INVALID', '輸入的姓名和球員姓名不同，沒有刪除。');
+  const removed = {};
+  const del = (name, pred) => {
+    const rows = readAll_(name).filter(pred).map((r) => r._row).sort((x, y) => y - x);
+    rows.forEach((row) => sheet_(name).deleteRow(row));
+    if (rows.length) removed[name] = rows.length;
+  };
+  const mine = (r) => r.playerId === id;
+  ['DailyNotes', 'FitnessTests', 'Goals', 'TaskCompletions', 'PlayerMonsters', 'MonsterProgress', 'Wallets', 'RewardLogs', 'QuizPasses', 'ExamScores'].forEach((n) => del(n, mine));
+  del('Battles', (r) => r.playerId === id || r.opponentPlayerId === id);
+  del('Users', (u) => u.role === 'player' && u.playerId === id);
+  readAll_('Users')
+    .filter((u) => u.role === 'parent' && (u.childPlayerIds || '').split(',').indexOf(id) >= 0)
+    .forEach((u) => {
+      const kids = u.childPlayerIds.split(',').filter((k) => k && k !== id).join(',');
+      updateRow_('Users', u._row, Object.assign({}, u, { childPlayerIds: kids, updatedAt: nowIso_() }));
+    });
+  del('Players', (x) => x.id === id);
+  audit_(a, '刪除球員', id, p.name + '（' + Object.keys(removed).map((k) => k + ' ' + removed[k]).join('、') + '）');
+  return { deleted: id, removed: removed };
 }
 
 function adminSetUserActive_(ctx) {
@@ -2812,6 +2844,22 @@ function runSelfTests() {
     results.push([histB.some((h) => h.defense && h.status === 'won'), '被挑戰的隊友會看到防守紀錄（對方投降＝防守成功）', '']);
     const wA = readAll_('Wallets').find((x) => x.playerId === 'TEST-PA');
     updateRow_('Wallets', wA._row, Object.assign({}, wA, { pveCount: BATTLE.pveDaily }));
+    // 18. 永久刪除球員：連同帳號與所有資料一起刪除
+    appendRow_('Players', { id: 'TEST-PD', name: '測試刪除球員', number: '', grade: '', position: '', active: 'TRUE', createdAt: now, updatedAt: now });
+    const pdAcc = mk('test-pd-' + Date.now(), 'player', 'TEST-PD');
+    appendRow_('FitnessTests', { id: 'TEST-FD', playerId: 'TEST-PD', date: today, item: 'pushup', value: 10, unit: '次', note: '', createdBy: '測試', createdAt: now, updatedAt: now });
+    call('saveExamScores', { schoolYear: 115, semester: '上', examNo: 3, grade: 7, entries: [{ playerId: 'TEST-PD', scores: { 國文: 70 } }] }, tCoach, Utilities.getUuid());
+    const parRow = readAll_('Users').find((u) => u.id === parentAcc.id);
+    updateRow_('Users', parRow._row, Object.assign({}, parRow, { childPlayerIds: 'TEST-PA,TEST-PD' }));
+    const tPD = call('login', { loginId: pdAcc.loginId, code: pdAcc.code }).data.token;
+    expectFail('姓名輸入錯誤時不會刪除球員', call('adminDeletePlayer', { playerId: 'TEST-PD', confirmName: '別人' }, tCoach, Utilities.getUuid()), 'INVALID');
+    const delP = call('adminDeletePlayer', { playerId: 'TEST-PD', confirmName: '測試刪除球員' }, tCoach, Utilities.getUuid());
+    const leftAny = ['Players', 'FitnessTests', 'ExamScores'].some((n) => readAll_(n).some((r) => r.id === 'TEST-PD' || r.playerId === 'TEST-PD'));
+    results.push([delP.ok && !leftAny && !readAll_('Users').some((u) => u.id === pdAcc.id), '教練可以永久刪除球員，帳號、體能、段考資料一起刪除', delP.ok ? '' : delP.error]);
+    results.push([readAll_('Users').find((u) => u.id === parentAcc.id).childPlayerIds === 'TEST-PA', '刪除球員後，家長的子女清單也會移除這位球員', '']);
+    expectFail('被刪除球員的登入狀態立即失效', call('me', {}, tPD), 'AUTH');
+    expectFail('找不到的球員不能刪除', call('adminDeletePlayer', { playerId: 'TEST-PD', confirmName: '測試刪除球員' }, tCoach, Utilities.getUuid()), 'NOT_FOUND');
+
     expectFail('每天的野外對戰次數有上限', call('startBattle', { mode: 'pve', areaId: 'field', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
 
     // 6. 停用帳號立即失效

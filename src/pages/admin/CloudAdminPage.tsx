@@ -236,6 +236,25 @@ function AccountsTab() {
                         }}
                       >
                         {p.active ? '停用' : '啟用'}
+                      </button>{' '}
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        disabled={task.pending}
+                        onClick={async () => {
+                          const typed = window.prompt(
+                            `⚠️ 永久刪除「${p.name}」\n\n會一起刪除：球員帳號、每日筆記、體能檢測、目標、段考成績、怪獸與遊戲紀錄。刪除後無法復原（只能從每週備份找回）。\n\n只是暫時不參加，建議按「停用」就好。\n\n確定要刪除，請輸入球員姓名：`,
+                          );
+                          if (typed === null) return;
+                          if (typed.trim() !== p.name) {
+                            window.alert('輸入的姓名不同，沒有刪除。');
+                            return;
+                          }
+                          const r = await task.run(() => api('adminDeletePlayer', { playerId: p.id, confirmName: typed.trim() }, '刪除球員'), `已永久刪除 ${p.name}。`);
+                          if (r.ok) load();
+                        }}
+                      >
+                        刪除
                       </button>
                     </td>
                   </tr>
