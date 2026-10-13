@@ -19,13 +19,27 @@ try {
   if (bad.ok || bad.code !== 'BAD_REQUEST') throw new Error('錯誤格式的請求應被拒絕');
   const unknown = JSON.parse(gas.doPost({ postData: { contents: JSON.stringify({ action: 'dropAll' }) } }).content);
   if (unknown.ok || unknown.code !== 'NOT_FOUND') throw new Error('未知的操作應被拒絕');
+  // 模擬「上次測試中途被停止」留下的資料：這次測試應該照樣全部通過，並且清乾淨
+  const t0 = new Date().toISOString();
+  gas.appendRow_('Players', { id: 'TEST-PA', name: '測試球員TEST-PA', active: 'TRUE', createdAt: t0, updatedAt: t0 });
+  gas.appendRow_('Users', { id: 'U-left1', loginId: 'test-coach-1791860931954', displayName: '殘留', role: 'coach', active: 'TRUE', codeSalt: 'x', codeHash: 'y', createdAt: t0, updatedAt: t0 });
+  gas.appendRow_('Users', { id: 'U-left2', loginId: 'test-parent-1791860935139', displayName: '殘留', role: 'parent', childPlayerIds: 'TEST-PA', active: 'TRUE', codeSalt: 'x', codeHash: 'y', createdAt: t0, updatedAt: t0 });
+  gas.appendRow_('KnowledgeArticles', { id: 'K-left', title: '測試文章', category: 'heat', audience: 'coach,player', summary: '摘要', status: 'published', updatedAt: t0 });
+  gas.appendRow_('Announcements', { id: 'A-left', title: '測試公告', body: '內容', audience: 'player', status: 'published', updatedAt: t0 });
+  gas.appendRow_('Monsters', { id: 'TEST-M1', dexNo: 901, name: '殘留獸', element: '熱血', rarity: 1, stage: 1, habitat: 'field', catchRate: 1 });
   gas.runSelfTests();
+  if (logs.some((l) => l.startsWith('❌'))) throw new Error('有殘留資料時測試失敗');
+  logs.push('✅ PASS（本機）上次測試中途停止留下的資料，這次測試會先清掉，測試照樣全部通過');
   const leftovers = ['Players', 'DailyNotes', 'FitnessTests', 'Goals', 'Rules', 'KnowledgeArticles', 'Announcements', 'AuditLogs',
     'Tasks', 'TaskCompletions', 'Monsters', 'PlayerMonsters', 'MonsterProgress', 'Wallets', 'RewardLogs', 'QuizPasses', 'ExamScores', 'Battles']
     .map((n) => [n, gas.readAll_(n).length])
     .filter(([, c]) => c > 0);
   if (leftovers.length) throw new Error('測試資料沒有清乾淨：' + JSON.stringify(leftovers));
   if (gas.readAll_('Users').length !== 1) throw new Error('測試帳號沒有清乾淨');
+  const logSheet = spreadsheet.getSheetByName('自動測試結果');
+  const logRows = logSheet ? logSheet.getDataRange().getDisplayValues() : [];
+  if (logRows.length < 200 || logRows[0][0] !== '結果' || !logRows[0][3].includes('通過')) throw new Error('測試結果沒有寫入「自動測試結果」工作表');
+  logs.push('✅ PASS（本機）測試結果已寫入「自動測試結果」工作表（' + (logRows.length - 1) + ' 列）');
 
   // 完整流程：用假的舊檔案（虛構姓名）測試「預覽 → 匯入 → 再匯入一次不重複」
   const coachCode = logs.join('\n').match(/登入碼：([A-Z0-9]+)/)[1];

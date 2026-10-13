@@ -23,6 +23,10 @@ function makeSheet(name) {
       rows.splice(r - 1, 1);
     },
     setFrozenRows: () => sheet,
+    clearContents: () => {
+      rows.length = 0;
+      return sheet;
+    },
     getDataRange: () => {
       const width = rows.reduce((m, r) => Math.max(m, r ? r.length : 0), 0);
       return sheet.getRange(1, 1, Math.max(1, sheet.getLastRow()), Math.max(1, width));
@@ -94,7 +98,7 @@ export function createGasEnv() {
         get: (k) => (cacheStore.has(k) ? cacheStore.get(k) : null),
         put: (k, v) => {
           if (k.length > 250) throw new Error('cache key too long: ' + k.length);
-          if (v.length > 100000) throw new Error('cache value too large');
+          if (Buffer.byteLength(v, 'utf8') > 100000) throw new Error('cache value too large: ' + Buffer.byteLength(v, 'utf8') + ' bytes');
           cacheStore.set(k, v);
         },
         remove: (k) => cacheStore.delete(k),

@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.3.0';
+const API_VERSION = '5.3.1';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -494,7 +494,7 @@ function deleteFitness_(ctx) {
   const id = str_(ctx.payload.id, '紀錄', { required: true, max: 40 });
   const rec = readAll_('FitnessTests').find((f) => f.id === id);
   if (!rec) throw apiError_('NOT_FOUND', '找不到這筆檢測紀錄（可能已被刪除）。');
-  sheet_('FitnessTests').deleteRow(rec._row);
+  deleteRow_('FitnessTests', rec._row);
   audit_(a, '刪除體能檢測', rec.playerId, (FITNESS_ITEMS[rec.item] ? FITNESS_ITEMS[rec.item].label : rec.item) + ' ' + rec.value + rec.unit + '（' + rec.date + '）');
   return { deleted: id };
 }
@@ -1506,7 +1506,7 @@ function adminDeletePlayer_(ctx) {
   const removed = {};
   const del = (name, pred) => {
     const rows = readAll_(name).filter(pred).map((r) => r._row).sort((x, y) => y - x);
-    rows.forEach((row) => sheet_(name).deleteRow(row));
+    rows.forEach((row) => deleteRow_(name, row));
     if (rows.length) removed[name] = rows.length;
   };
   const mine = (r) => r.playerId === id;
@@ -1824,7 +1824,7 @@ function deleteExamScore_(ctx) {
   const id = str_(ctx.payload.id, '成績', { required: true, max: 40 });
   const r = readAll_('ExamScores').find((x) => x.id === id);
   if (!r) throw apiError_('NOT_FOUND', '找不到這筆成績。');
-  sheet_('ExamScores').deleteRow(r._row);
+  deleteRow_('ExamScores', r._row);
   audit_(a, '刪除段考成績', r.playerId, r.schoolYear + r.semester + ' 第' + r.examNo + '次段考');
   return { deleted: id };
 }
@@ -2221,6 +2221,7 @@ function finishBattle_(b, st, status, log) {
 /** 一次寫入多列（大量匯入時比逐列 appendRow 快很多） */
 function appendRows_(name, objs) {
   if (!objs.length) return;
+  delete READ_CACHE_[name];
   const sh = sheet_(name);
   const headers = SCHEMA[name];
   sh.getRange(sh.getLastRow() + 1, 1, objs.length, headers.length).setValues(objs.map((o) => headers.map((h) => cell_(o[h]))));
@@ -2245,30 +2246,49 @@ function createSheet_(ss, name) {
   return sh;
 }
 
+/**
+ * 同一次請求內的讀取快取：同一張表在一次請求中只向試算表讀一次（大幅減少讀取次數）。
+ * 任何寫入都會清掉該表的快取；取得寫入鎖時清空全部，確保鎖內讀到的是最新資料。
+ * 回傳的是複本，呼叫端修改物件不會影響快取。
+ */
+let READ_CACHE_ = {};
+
 /** 讀取整張表（全部以文字讀出），每列附上 _row 行號 */
 function readAll_(name) {
-  const sh = sheet_(name);
-  const lastRow = sh.getLastRow();
-  const headers = SCHEMA[name];
-  if (lastRow < 2) return [];
-  const values = sh.getRange(2, 1, lastRow - 1, headers.length).getDisplayValues();
-  const out = [];
-  values.forEach((r, i) => {
-    if (r[0] === '') return;
-    const o = { _row: i + 2 };
-    headers.forEach((h, j) => (o[h] = r[j]));
-    out.push(o);
-  });
-  return out;
+  if (!READ_CACHE_[name]) {
+    const sh = sheet_(name);
+    const lastRow = sh.getLastRow();
+    const headers = SCHEMA[name];
+    const out = [];
+    if (lastRow >= 2) {
+      sh.getRange(2, 1, lastRow - 1, headers.length)
+        .getDisplayValues()
+        .forEach((r, i) => {
+          if (r[0] === '') return;
+          const o = { _row: i + 2 };
+          headers.forEach((h, j) => (o[h] = r[j]));
+          out.push(o);
+        });
+    }
+    READ_CACHE_[name] = out;
+  }
+  return READ_CACHE_[name].map((o) => Object.assign({}, o));
 }
 
 function appendRow_(name, obj) {
+  delete READ_CACHE_[name];
   sheet_(name).appendRow(SCHEMA[name].map((h) => cell_(obj[h])));
 }
 
 function updateRow_(name, row, obj) {
+  delete READ_CACHE_[name];
   const headers = SCHEMA[name];
   sheet_(name).getRange(row, 1, 1, headers.length).setValues([headers.map((h) => cell_(obj[h]))]);
+}
+
+function deleteRow_(name, row) {
+  delete READ_CACHE_[name];
+  sheet_(name).deleteRow(row);
 }
 
 /** 一律以文字寫入：前置單引號可避免日期被轉換，也避免「=」開頭的輸入被當成公式執行 */
@@ -2292,6 +2312,7 @@ function stringify_(obj) {
 function withLock_(fn) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) throw apiError_('BUSY', '目前使用人數較多，請稍後再試。');
+  READ_CACHE_ = {}; // 拿到鎖之後重新讀取，避免用到等待期間別人已經修改過的舊資料
   try {
     return fn();
   } finally {
@@ -2472,6 +2493,7 @@ function runSelfTests() {
   const created = { players: [], users: [], articles: [], announcements: [] };
   const savedGoalSettings = PropertiesService.getScriptProperties().getProperty('goalSettings');
   migrateSchema_(); // 更新程式後第一次執行時，補上新版本的欄位
+  cleanupTestData_(created); // 先清掉上次測試中途被停止所留下的資料，避免干擾這次測試
 
   try {
     // 準備：暫時的教練、兩位球員、一位家長（直接寫入，不經過 API）
@@ -2877,26 +2899,53 @@ function runSelfTests() {
   }
 
   const passed = results.filter((r) => r[0]).length;
+  writeTestLog_(results, passed);
   results.forEach((r) => console.log((r[0] ? '✅ PASS ' : '❌ FAIL ') + r[1] + (r[0] || !r[2] ? '' : '（' + r[2] + '）')));
   console.log('──────── 結果：' + passed + ' / ' + results.length + ' 通過 ────────');
   if (passed !== results.length) throw new Error('有 ' + (results.length - passed) + ' 項測試失敗，請把執行記錄提供給開發者。');
 }
 
+/** 把測試結果寫到「自動測試結果」工作表（失敗的排在最前面），方便檢查；每次執行會覆蓋上一次 */
+function writeTestLog_(results, passed) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = ss.getSheetByName(TEST_LOG_SHEET) || ss.insertSheet(TEST_LOG_SHEET);
+    sh.clearContents();
+    const at = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm');
+    const rows = [['結果', '測試項目', '說明', '版本 ' + API_VERSION + '・' + at + '・' + passed + ' / ' + results.length + ' 通過']];
+    results.filter((r) => !r[0]).concat(results.filter((r) => r[0])).forEach((r) => rows.push([r[0] ? 'PASS' : 'FAIL', cell_(r[1]), cell_(String(r[2] || '').slice(0, 1000)), '']));
+    sh.getRange(1, 1, rows.length, 4).setValues(rows);
+  } catch (e) {
+    console.log('（無法寫入測試結果工作表：' + e + '）');
+  }
+}
+
+const TEST_LOG_SHEET = '自動測試結果';
+
+/**
+ * 刪除測試資料。除了這次建立的，也會清掉「上次測試中途被停止」而留下的資料：
+ * TEST- 開頭的資料、自動測試帳號（test-coach-數字 這類帳號）、自動測試的文章與公告。
+ */
+const TEST_LOGIN_PATTERN = /^test-(coach|pa|pb|pc|pd|parent)-\d{10,}$/;
+
 function cleanupTestData_(created) {
-  const ids = created.users.concat(created.players, created.articles, created.announcements);
+  const testUsers = created.users.concat(readAll_('Users').filter((u) => TEST_LOGIN_PATTERN.test(u.loginId)).map((u) => u.id));
+  const ids = testUsers.concat(created.players, created.articles, created.announcements);
+  const isTestTitle = (r) => (r.title === '測試文章' && r.summary === '摘要') || (r.title === '測試公告' && r.body === '內容');
   const isTest = (r) =>
     ids.indexOf(r.id) >= 0 ||
     String(r.id || '').indexOf('TEST-') === 0 ||
     String(r.playerId || '').indexOf('TEST-') === 0 ||
     String(r.target || '').indexOf('TEST-') === 0 ||
     ids.indexOf(r.target) >= 0 ||
-    created.users.indexOf(r.actorId) >= 0;
+    testUsers.indexOf(r.actorId) >= 0 ||
+    isTestTitle(r);
   [
     'DailyNotes', 'FitnessTests', 'Goals', 'Rules', 'KnowledgeArticles', 'Announcements',
     'TaskCompletions', 'Tasks', 'PlayerMonsters', 'MonsterProgress', 'Monsters', 'Wallets', 'RewardLogs', 'QuizPasses',
     'ExamScores', 'Battles', 'AuditLogs', 'Users', 'Players',
   ].forEach((name) => {
     const rows = readAll_(name).filter(isTest).map((r) => r._row).sort((a, b) => b - a);
-    rows.forEach((row) => sheet_(name).deleteRow(row));
+    rows.forEach((row) => deleteRow_(name, row));
   });
 }
