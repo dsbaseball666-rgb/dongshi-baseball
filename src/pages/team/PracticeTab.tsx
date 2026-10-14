@@ -4,6 +4,8 @@ import { useTask } from '../../store/DemoStore';
 import { addDays, todayStr } from '../../lib/date';
 import { mondayOf, practiceNoticeText, PRACTICE_ICONS, PRACTICE_TYPES, shortDate, usePractice, type PracticeInput } from '../../sources/team';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, LoadingState } from '../../components/UI';
+import { LineImageButton } from '../../components/LineImage';
+import { practiceImage } from './images';
 
 const TYPE_TONE: Record<string, 'green' | 'gray' | 'yellow' | 'blue'> = { 練球: 'green', 休息: 'gray', 比賽: 'yellow', 其他: 'blue' };
 
@@ -155,6 +157,7 @@ export function PracticeTab({ coach }: { coach: boolean }) {
             <button type="button" className="btn" onClick={copy} disabled={week.length === 0}>
               📋 複製 LINE 通知文字
             </button>
+            <LineImageButton key={monday} make={() => practiceImage(monday, week)} filename={`一週練球通知-${monday}.png`} title="一週練球通知" disabled={week.length === 0} />
           </div>
         )}
         {copied &&

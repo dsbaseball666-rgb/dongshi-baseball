@@ -6,6 +6,8 @@ import { ATTENDANCE_STATUSES, ATTENDANCE_TONE, PRACTICE_ICONS, PRESENT_STATUSES,
 import { addDays, todayStr } from '../../lib/date';
 import { downloadCsv } from '../../lib/csv';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState } from '../../components/UI';
+import { LineImageButton } from '../../components/LineImage';
+import { attendanceImage } from './images';
 
 type Draft = Record<string, { status: AttendanceStatus | ''; reason: string }>;
 
@@ -19,6 +21,7 @@ function RollCall({ players, onSaved }: { players: Player[]; onSaved: () => void
   const task = useTask();
   const [draft, setDraft] = useState<Draft>({});
   const [dirty, setDirty] = useState(false);
+  const [showReason, setShowReason] = useState(false);
   useEffect(() => {
     const d: Draft = {};
     att.records.forEach((r) => (d[r.playerId] = { status: r.status, reason: r.reason }));
@@ -120,6 +123,20 @@ function RollCall({ players, onSaved }: { players: Player[]; onSaved: () => void
           <button type="submit" className="btn btn-primary" disabled={task.pending || !dirty}>
             💾 儲存點名{dirty ? '' : '（沒有變更）'}
           </button>
+          <div className="form-actions line-share">
+            <LineImageButton
+              key={date}
+              make={() => attendanceImage(date, players, draft, showReason)}
+              filename={`出缺席-${date}.png`}
+              title={`出缺席紀錄 ${shortDate(date)}`}
+              label={dirty ? '🖼️ 產生 LINE 圖片（請先儲存）' : '🖼️ 產生 LINE 圖片'}
+              disabled={dirty || att.records.length === 0}
+            />
+            <label className="check">
+              <input type="checkbox" checked={showReason} onChange={(e) => setShowReason(e.target.checked)} />
+              圖片上顯示請假原因
+            </label>
+          </div>
         </form>
       )}
     </Card>
