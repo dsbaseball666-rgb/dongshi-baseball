@@ -2848,6 +2848,8 @@ function saveAttendance_(ctx) {
 
 /* ── 球員個人資料與通訊錄（只有教練看得到） ── */
 
+const GUARDIAN_RELATIONS = ['母', '父', '隔代', '其他'];
+
 const PROFILE_TEXT_FIELDS = [
   ['className', '班級', 20], ['batsThrows', '投打', 10], ['phone', '球員電話', 20], ['address', '地址', 100],
   ['guardianName', '監護人姓名', 30], ['guardianRelation', '監護人關係', 10], ['guardianPhone', '監護人電話', 20],
@@ -2865,6 +2867,14 @@ function listProfiles_() {
   return { profiles: readAll_('PlayerProfiles').map(parseProfile_), players: readAll_('Players').map(parsePlayer_) };
 }
 
+/** 生日要用西元年（避免輸入民國年變成 0101 年） */
+function birthdayStr_(v) {
+  const s = dateStr_(v, '生日');
+  const y = Number(s.slice(0, 4));
+  if (y < 1990 || s > today_()) throw apiError_('INVALID', '「生日」請用西元年，例如民國 101 年請填 2012 年。');
+  return s;
+}
+
 function saveProfile_(ctx) {
   const a = ctx.actor;
   const p = ctx.payload;
@@ -2872,13 +2882,16 @@ function saveProfile_(ctx) {
   if (!readAll_('Players').some((x) => x.id === playerId)) throw apiError_('NOT_FOUND', '找不到這位球員。');
   const fields = {
     playerId: playerId,
-    birthday: p.birthday ? dateStr_(p.birthday, '生日') : '',
+    birthday: p.birthday ? birthdayStr_(p.birthday) : '',
     height: numStr_(p.height, '身高（公分）', 250),
     weight: numStr_(p.weight, '體重（公斤）', 200),
     updatedBy: a.displayName,
     updatedAt: nowIso_(),
   };
   PROFILE_TEXT_FIELDS.forEach((f) => (fields[f[0]] = str_(p[f[0]], f[1], { max: f[2] })));
+  ['guardianRelation', 'guardian2Relation'].forEach((k) => {
+    if (fields[k] && GUARDIAN_RELATIONS.indexOf(fields[k]) < 0) throw apiError_('INVALID', '關係請選擇「母／父／隔代／其他」。');
+  });
   const old = readAll_('PlayerProfiles').find((x) => x.playerId === playerId);
   if (old) updateRow_('PlayerProfiles', old._row, fields);
   else appendRow_('PlayerProfiles', fields);
@@ -3965,6 +3978,8 @@ function runSelfTests() {
       results.push([readAll_('PlayerProfiles').filter((x) => x.playerId === 'TEST-PA').length === 1, '再次儲存個人資料會更新同一列，不會重複', '']);
       expectFail('身高格式錯誤會被拒絕', call('saveProfile', { playerId: 'TEST-PA', height: 'abc' }, tCoach), 'INVALID');
       expectFail('生日格式錯誤會被拒絕', call('saveProfile', { playerId: 'TEST-PA', birthday: '2012/13/40' }, tCoach), 'INVALID');
+      expectFail('家長關係只能選母、父、隔代、其他', call('saveProfile', { playerId: 'TEST-PA', guardianRelation: '舅舅' }, tCoach), 'INVALID');
+      expectFail('生日填成民國年（0101 年）會被拒絕', call('saveProfile', { playerId: 'TEST-PA', birthday: '0101-01-25' }, tCoach), 'INVALID');
 
       const yr = 'TEST-年度';
       const bi = call('saveBudgetItem', { year: yr, type: '支出', name: '球具', amount: '10,000' }, tCoach, Utilities.getUuid());

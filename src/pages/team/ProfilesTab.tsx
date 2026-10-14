@@ -3,13 +3,14 @@ import type { Player, PlayerProfile } from '../../types';
 import { useTask } from '../../store/DemoStore';
 import { useProfiles, type ProfileInput } from '../../sources/team';
 import { downloadCsv } from '../../lib/csv';
-import { formatDateTime } from '../../lib/date';
+import { formatDateTime, todayStr } from '../../lib/date';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState } from '../../components/UI';
 
 const EMPTY: Omit<ProfileInput, 'playerId'> = {
   birthday: '', className: '', batsThrows: '', height: '', weight: '', phone: '', address: '',
   guardianName: '', guardianRelation: '', guardianPhone: '', guardian2Name: '', guardian2Relation: '', guardian2Phone: '', medicalNote: '', note: '',
 };
+const RELATIONS = ['母', '父', '隔代', '其他'];
 const BATS_THROWS = ['右投右打', '右投左打', '右投兩打', '左投左打', '左投右打', '左投兩打'];
 
 const byNumber = (a: Player, b: Player) => (Number(a.number) || 999) - (Number(b.number) || 999) || a.name.localeCompare(b.name, 'zh-TW');
@@ -20,6 +21,22 @@ function Phone({ value }: { value: string }) {
     <a href={`tel:${value.replace(/[^\d+]/g, '')}`} className="nowrap">
       📞 {value}
     </a>
+  );
+}
+
+/** 關係用點選的：母、父、隔代、其他；再點一次取消 */
+function RelationPick({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="field">
+      <span className="field-label">{label}</span>
+      <div className="roll-status" role="radiogroup" aria-label={label}>
+        {RELATIONS.map((r) => (
+          <button key={r} type="button" role="radio" aria-checked={value === r} className={`status-btn ${value === r ? 'on tone-blue' : ''}`} onClick={() => onChange(value === r ? '' : r)}>
+            {r}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -48,7 +65,9 @@ function ProfileForm({ player, profile, save, onDone }: { player: Player; profil
       >
         <h3 className="section-title">基本資料</h3>
         <div className="grid-3 tight">
-          {input('birthday', '生日', { type: 'date' })}
+          <Field label="生日" hint="請用西元年，例如民國 101 年＝2012 年">
+            <input type="date" value={f.birthday} min="1990-01-01" max={todayStr()} onChange={(e) => setF({ ...f, birthday: e.target.value })} />
+          </Field>
           {input('className', '班級', { maxLength: 20, placeholder: '例如：801' })}
           <Field label="投打">
             <select value={f.batsThrows} onChange={(e) => setF({ ...f, batsThrows: e.target.value })}>
@@ -67,10 +86,10 @@ function ProfileForm({ player, profile, save, onDone }: { player: Player; profil
         <h3 className="section-title">聯絡人</h3>
         <div className="grid-3 tight">
           {input('guardianName', '監護人姓名', { maxLength: 30 })}
-          {input('guardianRelation', '關係', { maxLength: 10, placeholder: '例如：父、母、祖母' })}
+          <RelationPick label="關係" value={f.guardianRelation} onChange={(v) => setF({ ...f, guardianRelation: v })} />
           {input('guardianPhone', '監護人電話', { type: 'tel', maxLength: 20 })}
           {input('guardian2Name', '第二聯絡人姓名', { maxLength: 30 })}
-          {input('guardian2Relation', '關係', { maxLength: 10 })}
+          <RelationPick label="關係" value={f.guardian2Relation} onChange={(v) => setF({ ...f, guardian2Relation: v })} />
           {input('guardian2Phone', '第二聯絡人電話', { type: 'tel', maxLength: 20 })}
         </div>
         <Field label="健康／過敏注意事項" hint="例如：氣喘、蠶豆症、過敏藥物。緊急時教練會優先看這裡。">
