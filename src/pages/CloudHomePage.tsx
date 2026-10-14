@@ -11,6 +11,7 @@ import { useGame } from '../sources/game';
 import { exploresLeft } from '../store/actions';
 import { canEvolve, expToNext } from '../lib/monster';
 import { battlesLeft } from '../lib/battle';
+import { mondayOf, PRACTICE_ICONS, shortDate, usePractice } from '../sources/team';
 
 /** 球員首頁：夥伴、點數與任務板（共用一次讀取的遊戲資料） */
 function PlayerGame() {
@@ -103,6 +104,41 @@ function TodayNote({ playerId }: { playerId: string }) {
   );
 }
 
+/** 這週的練球安排（含休息日） */
+function WeekPractice() {
+  const { user } = useStore();
+  const today = todayStr();
+  const monday = mondayOf(today);
+  const { days, loading, error } = usePractice(monday, addDays(monday, 6));
+  const rest = days.filter((d) => d.date >= today);
+  return (
+    <Card title="這週練球" icon="⚾" actions={<Link to="/team" className="btn btn-sm btn-ghost">{user?.role === 'coach' ? '編輯 →' : '看整週 →'}</Link>}>
+      {loading ? (
+        <LoadingState />
+      ) : error ? (
+        <Alert kind="error">{error}</Alert>
+      ) : rest.length === 0 ? (
+        <EmptyState icon="📅" title={days.length ? '這週的練球都結束了' : '這週還沒有練球通知'} />
+      ) : (
+        <ul className="plain-list">
+          {rest.map((d) => (
+            <li key={d.id}>
+              {PRACTICE_ICONS[d.type]} <strong>{shortDate(d.date)} {d.type}</strong> {d.date === today && <Badge tone="red">今天</Badge>}
+              {(d.startTime || d.location) && (
+                <div className="muted small">
+                  {d.startTime && `${d.startTime}${d.endTime ? '–' + d.endTime : ''}`}
+                  {d.location && `・${d.location}`}
+                </div>
+              )}
+              {d.note && <div className="muted small">💬 {d.note}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 /** 最近 7 天的行程（全隊與自己相關的） */
 function UpcomingEvents() {
   const { user } = useStore();
@@ -168,6 +204,7 @@ export default function CloudHomePage() {
   if (!user) return null;
   const grownUp = user.role !== 'player';
   const links = [
+    user.role === 'coach' ? { to: '/team', icon: '📋', label: '球隊管理' } : { to: '/team', icon: '📅', label: '練球與賽事' },
     ...(grownUp ? [{ to: '/hub', icon: '🤝', label: '親師平台' }] : []),
     ...(user.role === 'coach' || user.role === 'player'
       ? [
@@ -211,6 +248,7 @@ export default function CloudHomePage() {
       </section>
       {user.role === 'player' && user.playerId && <PlayerGame />}
       <div className="grid-2">
+        <WeekPractice />
         <UpcomingEvents />
         {user.role === 'player' && user.playerId && <TodayNote playerId={user.playerId} />}
         <LatestAnnouncements />

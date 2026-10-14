@@ -621,3 +621,45 @@ th { background: #f2f4f8; white-space: nowrap; }
   .page-icon { width: 44px; height: 44px; font-size: 1.4rem; }
   .login-card { padding: 16px; }
 }
+
+/* ── 球隊管理（5.7） ── */
+.week-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.day-card { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: #fff; border: 3px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.day-card.type-休息 { background: #eef0f5; }
+.day-card.type-比賽 { background: #fff4cf; }
+.day-card.type-none { background: rgba(255, 255, 255, 0.6); border-style: dashed; box-shadow: none; }
+.day-card.is-today { outline: 4px solid var(--red); outline-offset: 1px; }
+.day-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.day-type { font-weight: 700; }
+.notice-text { width: 100%; margin-top: 8px; font: inherit; font-size: 0.85rem; }
+.practice-edit { margin: 0 0 10px; padding: 8px 12px 12px; border: 2px solid #d5d9e4; border-radius: var(--radius); background: #fff; }
+.practice-edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.practice-edit-grid .practice-wide { grid-column: 1 / -1; }
+
+.roll-list { display: flex; flex-direction: column; gap: 6px; }
+.roll-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 10px; background: #fff; border: 2px solid #d5d9e4; border-radius: var(--radius); }
+.roll-row.unmarked { border-style: dashed; background: #fafbfd; }
+.roll-name { min-width: 110px; }
+.roll-status { display: flex; flex-wrap: wrap; gap: 4px; }
+.status-btn { font: inherit; font-size: 0.85rem; padding: 4px 9px; min-height: 34px; cursor: pointer; background: #fff; border: 2px solid #c3c8d6; border-radius: var(--radius); color: var(--ink); }
+.status-btn.on { border-color: var(--line); font-weight: 700; color: #fff; }
+.status-btn.on.tone-green { background: var(--grass-dark); }
+.status-btn.on.tone-yellow { background: var(--sun-dark); }
+.status-btn.on.tone-blue { background: var(--blue); }
+.status-btn.on.tone-purple { background: var(--purple); }
+.status-btn.on.tone-red { background: var(--red); }
+.status-btn.on.tone-gray { background: var(--ink-soft); }
+.roll-reason { flex: 1 1 160px; min-width: 0; }
+td.strong { font-weight: 700; }
+
+.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.money-in { color: var(--grass-dark); }
+.money-out { color: var(--red); }
+.usage-cell { min-width: 140px; }
+.usage-cell .badge { margin-top: 4px; }
+
+.tournament-list { display: flex; flex-direction: column; gap: 8px; }
+.tournament-item { font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: #fff; border: 3px solid var(--line); border-radius: var(--radius); color: var(--ink); }
+.tournament-item:hover, .tournament-item.active { background: #fff4cf; }
+.tournament-info { margin: 8px 0; }
+.game-form { margin: 8px 0 12px; padding: 10px; background: #f7f8fb; border-radius: var(--radius); }

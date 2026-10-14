@@ -32,6 +32,15 @@
 | Rules | 球隊規章 | id | no, content, category, version, needsCoachReview | ✅ 第三階段 |
 | KnowledgeArticles | 防護知識 | id | category, audience, summary, details, sources, status | ✅ 第三階段 |
 | Announcements | 公告 | id | title, body, audience, pinned, status | ✅ 第三階段 |
+| PracticeDays ※ | 一週練球通知 | id | date（**唯一**）, type（練球/休息/比賽/其他）, startTime, endTime, location, content, note | ✅ 5.7 |
+| Attendance ※ | 出缺席 | id | date + playerId（**唯一**）, status（出席/遲到/早退/事假/病假/公假/缺席）, reason | ✅ 5.7 |
+| PlayerProfiles ※ | 球員個人資料與通訊錄（只有教練） | playerId | birthday, className, batsThrows, height, weight, 監護人與電話, medicalNote | ✅ 5.7 |
+| BudgetItems ※ | 預算項目 | id | year + type + name（**唯一**）, amount | ✅ 5.7 |
+| Transactions ※ | 收支明細 | id | year, date, type（收入/支出）, itemId, title, amount（整數元）, handler | ✅ 5.7 |
+| Tournaments ※ | 盃賽、聯賽 | id | name, kind, startDate, endDate, signupDeadline, fee, result, playerIds | ✅ 5.7 |
+| Games ※ | 每一場比賽 | id | tournamentId, date, time, opponent, side, ourScore, oppScore | ✅ 5.7 |
+
+> ※ 標記的 7 張表放在**另一份獨立的試算表「東勢國中棒球隊｜球隊管理 資料庫」**，避免原本的資料庫越來越大。第一次執行 `setup()`（或 `setupTeamDb()`）時自動建立，試算表 ID 存在指令碼屬性 `teamSpreadsheetId`；帳號與球員名單仍在原本的試算表。
 
 > Wallets、RewardLogs、QuizPasses、ExamScores、Battles 在第一次用到時由 Apps Script 自動建立，不需要重新執行 setup()。
 > 新版本在既有工作表**最後面**新增的欄位（例如 PlayerMonsters 的 hp、hpAt），執行 `runSelfTests()` 或 `setup()` 時會自動補上欄位名稱，原有資料不會被修改。
@@ -99,6 +108,9 @@ AuditLogs.actorId ────────► Users.id
 | 行程（新增／修改） | 全隊或指定學生 | ✗ | ✗（老師：只能給負責的學生） |
 | 讀取行程 | 全部 | 全隊＋自己 | 全隊＋子女（老師：全隊＋負責的學生） |
 | 產生／作廢邀請碼 | ✅ | ✗ | ✗ |
+| 讀取練球通知、賽事與比分 | ✅ | ✅ | ✅（老師、學務處也可以） |
+| 修改練球通知、賽事 | ✅ | ✗ | ✗ |
+| 出缺席、球員通訊錄、預算 | ✅ | ✗ | ✗ |
 | 新增／修改／刪除段考成績 | ✅ | ✗ | ✗ |
 | 購買／使用道具、對戰 | ✗ | 只有自己的怪獸 | ✗ |
 | 修改自己的登入碼 | ✅ | ✅ | ✅ |

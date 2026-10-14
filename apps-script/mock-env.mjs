@@ -53,10 +53,11 @@ function makeSheet(name) {
 }
 
 /** 建立一個全新的模擬環境並載入 Code.gs；回傳 Code.gs 的全域函式與記錄 */
-export function createGasEnv() {
+function makeSpreadsheet(id, name) {
   const sheets = [makeSheet('工作表1')];
-  let ssName = '未命名的試算表';
+  let ssName = name;
   const spreadsheet = {
+    sheets,
     getSheetByName: (n) => sheets.find((s) => s.name === n) || null,
     insertSheet: (n) => {
       const s = makeSheet(n);
@@ -68,8 +69,17 @@ export function createGasEnv() {
     getName: () => ssName,
     rename: (n) => (ssName = n),
     setSpreadsheetTimeZone: () => {},
-    getId: () => 'local',
+    getId: () => id,
+    getUrl: () => 'https://docs.google.com/spreadsheets/d/' + id + '/edit',
   };
+  return spreadsheet;
+}
+
+export function createGasEnv() {
+  const spreadsheet = makeSpreadsheet('local', '未命名的試算表');
+  const sheets = spreadsheet.sheets;
+  // SpreadsheetApp.create 建立的試算表（例如球隊管理資料庫）
+  const created = new Map();
   const cacheStore = new Map();
   const propStore = new Map();
   // 其他試算表（例如舊體能檢測檔案），可用 addExternal 加入
@@ -89,8 +99,14 @@ export function createGasEnv() {
       getActiveSpreadsheet: () => spreadsheet,
       flush: () => {},
       openById: (id) => {
+        if (created.has(id)) return created.get(id);
         if (!externals.has(id)) throw new Error('not found');
         return externals.get(id);
+      },
+      create: (name) => {
+        const ss = makeSpreadsheet('created-' + (created.size + 1), name);
+        created.set(ss.getId(), ss);
+        return ss;
       },
     },
     CacheService: {
@@ -131,5 +147,5 @@ export function createGasEnv() {
   };
   vm.createContext(context);
   vm.runInContext(readFileSync(new URL('./Code.gs', import.meta.url), 'utf8'), context, { filename: 'Code.gs' });
-  return { gas: context, sheets, spreadsheet, logs, addExternal };
+  return { gas: context, sheets, spreadsheet, logs, addExternal, created };
 }

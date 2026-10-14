@@ -15,7 +15,7 @@ export const config = {
 export const isCloudConfigured = config.apiUrl !== '';
 
 /** 已經串接雲端的頁面；其他頁面在雲端模式中會顯示「後續階段串接」 */
-export const CLOUD_READY_PATHS = ['/', '/hub', '/notes', '/goals', '/fitness', '/exams', '/training', '/explore', '/battle', '/shop', '/dex', '/rules', '/knowledge', '/announcements', '/account', '/admin'];
+export const CLOUD_READY_PATHS = ['/', '/team', '/hub', '/notes', '/goals', '/fitness', '/exams', '/training', '/explore', '/battle', '/shop', '/dex', '/rules', '/knowledge', '/announcements', '/account', '/admin'];
 
-/** 只有雲端模式提供的頁面（示範模式不顯示）：親師平台、段考成績、對戰、道具商店 */
-export const CLOUD_ONLY_PATHS = ['/hub', '/exams', '/battle', '/shop'];
+/** 只有雲端模式提供的頁面（示範模式不顯示）：球隊管理、親師平台、段考成績、對戰、道具商店 */
+export const CLOUD_ONLY_PATHS = ['/team', '/hub', '/exams', '/battle', '/shop'];

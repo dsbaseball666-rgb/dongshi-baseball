@@ -4,7 +4,7 @@
 
 import { createGasEnv } from './mock-env.mjs';
 
-const { gas, sheets, spreadsheet, logs, addExternal } = createGasEnv();
+const { gas, sheets, spreadsheet, logs, addExternal, created } = createGasEnv();
 let failed = false;
 try {
   gas.setup();
@@ -12,7 +12,12 @@ try {
   const coaches = gas.readAll_('Users').filter((u) => u.role === 'coach');
   if (coaches.length !== 1) throw new Error('setup() 重複執行後教練帳號數量應為 1，實際為 ' + coaches.length);
   if (spreadsheet.getSheetByName('工作表1')) throw new Error('預設空白工作表應被刪除');
-  if (sheets.length !== 23) throw new Error('應該有 23 張工作表，實際為 ' + sheets.length);
+  if (sheets.length !== 23) throw new Error('原本的試算表應該有 23 張工作表，實際為 ' + sheets.length);
+  if (created.size !== 1) throw new Error('應該另外建立 1 份球隊管理試算表，實際為 ' + created.size);
+  const teamSs = [...created.values()][0];
+  const teamNames = teamSs.getSheets().map((s) => s.getName()).sort().join(',');
+  if (teamNames !== 'Attendance,BudgetItems,Games,PlayerProfiles,PracticeDays,Tournaments,Transactions') throw new Error('球隊管理試算表的工作表不正確：' + teamNames);
+  logs.push('✅ PASS（本機）球隊管理資料放在另一份新的試算表（7 張工作表），原本的試算表沒有增加工作表');
   const ping = JSON.parse(gas.doGet().content);
   if (!ping.ok) throw new Error('doGet 失敗');
   const bad = JSON.parse(gas.doPost({ postData: { contents: 'not json' } }).content);
@@ -31,7 +36,8 @@ try {
   if (logs.some((l) => l.startsWith('❌'))) throw new Error('有殘留資料時測試失敗');
   logs.push('✅ PASS（本機）上次測試中途停止留下的資料，這次測試會先清掉，測試照樣全部通過');
   const leftovers = ['Players', 'DailyNotes', 'FitnessTests', 'Goals', 'Rules', 'KnowledgeArticles', 'Announcements', 'AuditLogs',
-    'Tasks', 'TaskCompletions', 'Monsters', 'PlayerMonsters', 'MonsterProgress', 'Wallets', 'RewardLogs', 'QuizPasses', 'ExamScores', 'Battles', 'Invites', 'Messages', 'SchoolRecords', 'Events']
+    'Tasks', 'TaskCompletions', 'Monsters', 'PlayerMonsters', 'MonsterProgress', 'Wallets', 'RewardLogs', 'QuizPasses', 'ExamScores', 'Battles', 'Invites', 'Messages', 'SchoolRecords', 'Events',
+    'PracticeDays', 'Attendance', 'PlayerProfiles', 'BudgetItems', 'Transactions', 'Tournaments', 'Games']
     .map((n) => [n, gas.readAll_(n).length])
     .filter(([, c]) => c > 0);
   if (leftovers.length) throw new Error('測試資料沒有清乾淨：' + JSON.stringify(leftovers));

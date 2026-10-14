@@ -19,6 +19,7 @@ const TrainingPage = lazy(() => import('./pages/TrainingPage'));
 const ExplorePage = lazy(() => import('./pages/ExplorePage'));
 const ExamsPage = lazy(() => import('./pages/ExamsPage'));
 const HubPage = lazy(() => import('./pages/HubPage'));
+const TeamPage = lazy(() => import('./pages/team/TeamPage'));
 const BattlePage = lazy(() => import('./pages/BattlePage'));
 const ShopPage = lazy(() => import('./pages/ShopPage'));
 const DexPage = lazy(() => import('./pages/DexPage'));
@@ -56,7 +57,7 @@ function CloudOnly() {
     <div className="page">
       <PageHeader icon="☁️" title="這個功能需要雲端帳號" />
       <Card>
-        <EmptyState icon="☁️" title="段考成績、親師平台、對戰與道具商店只在雲端模式提供" hint="示範模式沒有這些功能。請登出後用你的帳號與登入碼登入。" />
+        <EmptyState icon="☁️" title="球隊管理、段考成績、親師平台、對戰與道具商店只在雲端模式提供" hint="示範模式沒有這些功能。請登出後用你的帳號與登入碼登入。" />
       </Card>
     </div>
   );
@@ -98,6 +99,7 @@ export default function App() {
         <Route element={user ? <Layout /> : <Navigate to="/login" replace />}>
           <Route index element={<Home />} />
           <Route path="hub" element={<Allow cloud cloudOnly roles={GROWN_UPS}><HubPage /></Allow>} />
+          <Route path="team" element={<Allow cloud cloudOnly roles={ALL}><TeamPage /></Allow>} />
           <Route path="notes" element={<Allow cloud roles={['coach', 'player']}><NotesPage /></Allow>} />
           <Route path="goals" element={<Allow cloud roles={['coach', 'player']}><GoalsPage /></Allow>} />
           <Route path="fitness" element={<Allow cloud roles={['coach', 'player']}><FitnessPage /></Allow>} />

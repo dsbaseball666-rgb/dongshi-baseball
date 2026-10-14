@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.6.0';
+const API_VERSION = '5.7.0';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -53,6 +53,14 @@ const SCHEMA = {
   Messages: ['id', 'playerId', 'authorId', 'authorName', 'authorRole', 'body', 'createdAt', 'batchId', 'batchSize'],
   SchoolRecords: ['id', 'playerId', 'date', 'category', 'rating', 'content', 'authorId', 'authorName', 'authorRole', 'createdAt', 'updatedAt'],
   Events: ['id', 'title', 'date', 'startTime', 'endTime', 'location', 'category', 'playerIds', 'note', 'createdById', 'createdBy', 'createdAt', 'updatedAt'],
+  // 5.7：球隊管理（練球通知、出缺席、通訊錄、預算、賽事）
+  PracticeDays: ['id', 'date', 'type', 'startTime', 'endTime', 'location', 'content', 'note', 'createdById', 'updatedBy', 'createdAt', 'updatedAt'],
+  Attendance: ['id', 'date', 'playerId', 'status', 'reason', 'updatedBy', 'createdAt', 'updatedAt'],
+  PlayerProfiles: ['playerId', 'birthday', 'className', 'batsThrows', 'height', 'weight', 'phone', 'address', 'guardianName', 'guardianRelation', 'guardianPhone', 'guardian2Name', 'guardian2Relation', 'guardian2Phone', 'medicalNote', 'note', 'updatedBy', 'updatedAt'],
+  BudgetItems: ['id', 'year', 'type', 'name', 'amount', 'note', 'createdById', 'createdAt', 'updatedAt'],
+  Transactions: ['id', 'year', 'date', 'type', 'itemId', 'title', 'amount', 'handler', 'note', 'createdById', 'createdBy', 'createdAt', 'updatedAt'],
+  Tournaments: ['id', 'name', 'kind', 'startDate', 'endDate', 'location', 'organizer', 'signupDeadline', 'fee', 'result', 'playerIds', 'note', 'createdById', 'createdAt', 'updatedAt'],
+  Games: ['id', 'tournamentId', 'date', 'time', 'opponent', 'location', 'side', 'ourScore', 'oppScore', 'note', 'createdById', 'createdAt', 'updatedAt'],
 };
 
 // 遊戲規則（與前端示範模式相同）
@@ -254,6 +262,24 @@ const ROUTES = {
   listOpponents: { roles: ['player'], fn: listOpponents_ },
   startBattle: { roles: ['player'], write: true, fn: startBattle_ },
   battleAction: { roles: ['player'], write: true, fn: battleAction_ },
+  // 球隊管理：練球通知與賽事大家都看得到；出缺席、通訊錄、預算只有教練
+  teamDbUrl: { roles: COACH, fn: () => ({ url: teamSpreadsheet_().getUrl() }) },
+  listPractice: { roles: ALL_ROLES, fn: listPractice_ },
+  savePracticeWeek: { roles: COACH, write: true, fn: savePracticeWeek_ },
+  listAttendance: { roles: COACH, fn: listAttendance_ },
+  saveAttendance: { roles: COACH, write: true, fn: saveAttendance_ },
+  listProfiles: { roles: COACH, fn: listProfiles_ },
+  saveProfile: { roles: COACH, write: true, fn: saveProfile_ },
+  listBudget: { roles: COACH, fn: listBudget_ },
+  saveBudgetItem: { roles: COACH, write: true, fn: saveBudgetItem_ },
+  deleteBudgetItem: { roles: COACH, write: true, fn: deleteBudgetItem_ },
+  saveTransaction: { roles: COACH, write: true, fn: saveTransaction_ },
+  deleteTransaction: { roles: COACH, write: true, fn: deleteTransaction_ },
+  listTournaments: { roles: ALL_ROLES, fn: listTournaments_ },
+  saveTournament: { roles: COACH, write: true, fn: saveTournament_ },
+  deleteTournament: { roles: COACH, write: true, fn: deleteTournament_ },
+  saveGame: { roles: COACH, write: true, fn: saveGame_ },
+  deleteGame: { roles: COACH, write: true, fn: deleteGame_ },
 };
 
 function doGet() {
@@ -1633,7 +1659,7 @@ function adminDeletePlayer_(ctx) {
     if (rows.length) removed[name] = rows.length;
   };
   const mine = (r) => r.playerId === id;
-  ['DailyNotes', 'FitnessTests', 'Goals', 'TaskCompletions', 'PlayerMonsters', 'MonsterProgress', 'Wallets', 'RewardLogs', 'QuizPasses', 'ExamScores', 'Messages', 'SchoolRecords'].forEach((n) => del(n, mine));
+  ['DailyNotes', 'FitnessTests', 'Goals', 'TaskCompletions', 'PlayerMonsters', 'MonsterProgress', 'Wallets', 'RewardLogs', 'QuizPasses', 'ExamScores', 'Messages', 'SchoolRecords', 'Attendance', 'PlayerProfiles'].forEach((n) => del(n, mine));
   del('Battles', (r) => r.playerId === id || r.opponentPlayerId === id);
   del('Users', (u) => u.role === 'player' && u.playerId === id);
   const without = (csv) => csv.split(',').filter((k) => k && k !== id).join(',');
@@ -1645,6 +1671,9 @@ function adminDeletePlayer_(ctx) {
   readAll_('Events')
     .filter((e) => e.playerIds.split(',').indexOf(id) >= 0)
     .forEach((e) => updateRow_('Events', e._row, Object.assign({}, e, { playerIds: without(e.playerIds) })));
+  readAll_('Tournaments')
+    .filter((t) => t.playerIds.split(',').indexOf(id) >= 0)
+    .forEach((t) => updateRow_('Tournaments', t._row, Object.assign({}, t, { playerIds: without(t.playerIds) })));
   del('Players', (x) => x.id === id);
   audit_(a, '刪除球員', id, p.name + '（' + Object.keys(removed).map((k) => k + ' ' + removed[k]).join('、') + '）');
   return { deleted: id, removed: removed };
@@ -2681,6 +2710,386 @@ function hubSummary_(ctx) {
   };
 }
 
+// ───────────────────────── 球隊管理：練球通知、出缺席、通訊錄、預算、賽事 ─────────────────────────
+
+const PRACTICE_TYPES = ['練球', '休息', '比賽', '其他'];
+const ATTENDANCE_STATUSES = ['出席', '遲到', '早退', '事假', '病假', '公假', '缺席'];
+const MONEY_TYPES = ['收入', '支出'];
+const TOURNAMENT_KINDS = ['盃賽', '聯賽', '友誼賽', '其他'];
+const GAME_SIDES = ['', '先攻', '後攻'];
+
+function intStr_(v, label, min, max) {
+  const s = str_(v, label, { max: 12 }).replace(/,/g, '');
+  if (s === '') return '';
+  if (!/^-?\d+$/.test(s) || Number(s) < min || Number(s) > max) throw apiError_('INVALID', '「' + label + '」請填 ' + min + '～' + max + ' 的整數。');
+  return String(Number(s));
+}
+
+function numStr_(v, label, max) {
+  const s = str_(v, label, { max: 8 });
+  if (s === '') return '';
+  if (!/^\d+(\.\d)?$/.test(s) || Number(s) > max) throw apiError_('INVALID', '「' + label + '」請填 0～' + max + ' 的數字（最多一位小數）。');
+  return s;
+}
+
+function requirePlayerIds_(raw) {
+  const ids = (Array.isArray(raw) ? raw.map(String) : []).filter((v, i, arr) => v && arr.indexOf(v) === i);
+  if (ids.length > 200) throw apiError_('INVALID', '最多 200 位球員。');
+  const players = readAll_('Players');
+  if (ids.some((id) => !players.some((x) => x.id === id))) throw apiError_('INVALID', '找不到指定的球員。');
+  return ids;
+}
+
+function rangeArgs_(p, defFrom, defTo, maxDays) {
+  const from = p.from ? dateStr_(p.from, '開始日期') : defFrom;
+  const to = p.to ? dateStr_(p.to, '結束日期') : defTo;
+  if (to < from) throw apiError_('INVALID', '結束日期不能早於開始日期。');
+  if (addDaysStr_(from, maxDays) < to) throw apiError_('INVALID', '一次最多查詢 ' + maxDays + ' 天。');
+  return { from: from, to: to };
+}
+
+/* ── 一週練球通知 ── */
+
+function parsePractice_(r) {
+  return { id: r.id, date: r.date, type: r.type, startTime: r.startTime, endTime: r.endTime, location: r.location, content: r.content, note: r.note, updatedBy: r.updatedBy, updatedAt: r.updatedAt };
+}
+
+/** 練球安排：預設是今天前後各 21 天 */
+function listPractice_(ctx) {
+  const today = today_();
+  const r = rangeArgs_(ctx.payload, addDaysStr_(today, -21), addDaysStr_(today, 21), 120);
+  const days = readAll_('PracticeDays').filter((d) => d.date >= r.from && d.date <= r.to).map(parsePractice_);
+  days.sort((x, y) => (x.date < y.date ? -1 : 1));
+  return { days: days, today: today };
+}
+
+/** 一次儲存好幾天（通常是一整週）；類別空白＝刪除那天的安排 */
+function savePracticeWeek_(ctx) {
+  const a = ctx.actor;
+  const list = Array.isArray(ctx.payload.days) ? ctx.payload.days : [];
+  if (list.length === 0 || list.length > 14) throw apiError_('INVALID', '一次可以儲存 1～14 天。');
+  const existing = readAll_('PracticeDays');
+  const now = nowIso_();
+  const seen = {};
+  const toDelete = [];
+  let saved = 0;
+  list.forEach((d) => {
+    if (!d || typeof d !== 'object') throw apiError_('INVALID', '練球資料格式不正確。');
+    const date = dateStr_(d.date, '日期');
+    if (seen[date]) throw apiError_('INVALID', date + ' 重複出現。');
+    seen[date] = true;
+    const old = existing.find((x) => x.date === date);
+    if (!d.type) {
+      if (old) toDelete.push(old._row);
+      return;
+    }
+    if (PRACTICE_TYPES.indexOf(d.type) < 0) throw apiError_('INVALID', '請選擇「練球／休息／比賽／其他」。');
+    const startTime = timeStr_(d.startTime, '開始時間');
+    const endTime = timeStr_(d.endTime, '結束時間');
+    if (startTime && endTime && endTime < startTime) throw apiError_('INVALID', date + ' 的結束時間不能早於開始時間。');
+    const fields = {
+      date: date, type: d.type, startTime: startTime, endTime: endTime, location: str_(d.location, '地點', { max: 40 }),
+      content: str_(d.content, '練習內容', { max: 300 }), note: str_(d.note, '備註', { max: 200 }), updatedBy: a.displayName, updatedAt: now,
+    };
+    if (old) updateRow_('PracticeDays', old._row, Object.assign({}, old, fields));
+    else appendRow_('PracticeDays', Object.assign({ id: newId_('PD'), createdById: a.id, createdAt: now }, fields));
+    saved++;
+  });
+  toDelete.sort((x, y) => y - x).forEach((row) => deleteRow_('PracticeDays', row));
+  return { saved: saved, cleared: toDelete.length };
+}
+
+/* ── 出缺席 ── */
+
+function parseAttendance_(r) {
+  return { id: r.id, date: r.date, playerId: r.playerId, status: r.status, reason: r.reason, updatedBy: r.updatedBy, updatedAt: r.updatedAt };
+}
+
+/** 出缺席紀錄：預設是最近 30 天，最多一次查一年 */
+function listAttendance_(ctx) {
+  const today = today_();
+  const r = rangeArgs_(ctx.payload, addDaysStr_(today, -29), today, 400);
+  return { records: readAll_('Attendance').filter((x) => x.date >= r.from && x.date <= r.to).map(parseAttendance_), today: today };
+}
+
+/** 點名：一天一次送出全隊；狀態空白＝取消那位球員那天的紀錄 */
+function saveAttendance_(ctx) {
+  const a = ctx.actor;
+  const date = dateStr_(ctx.payload.date, '日期');
+  const list = Array.isArray(ctx.payload.records) ? ctx.payload.records : [];
+  if (list.length === 0 || list.length > 200) throw apiError_('INVALID', '請至少點名一位球員。');
+  const players = readAll_('Players');
+  const existing = readAll_('Attendance').filter((x) => x.date === date);
+  const now = nowIso_();
+  const seen = {};
+  const toAdd = [];
+  const toDelete = [];
+  list.forEach((r) => {
+    if (!r || typeof r !== 'object') throw apiError_('INVALID', '點名資料格式不正確。');
+    const playerId = str_(r.playerId, '球員', { required: true, max: 20 });
+    if (seen[playerId]) throw apiError_('INVALID', '同一位球員重複出現。');
+    seen[playerId] = true;
+    if (!players.some((x) => x.id === playerId)) throw apiError_('NOT_FOUND', '找不到指定的球員。');
+    const old = existing.find((x) => x.playerId === playerId);
+    if (!r.status) {
+      if (old) toDelete.push(old._row);
+      return;
+    }
+    if (ATTENDANCE_STATUSES.indexOf(r.status) < 0) throw apiError_('INVALID', '出缺席狀態不正確。');
+    const fields = { status: r.status, reason: str_(r.reason, '原因', { max: 100 }), updatedBy: a.displayName, updatedAt: now };
+    if (old) {
+      if (old.status !== fields.status || old.reason !== fields.reason) updateRow_('Attendance', old._row, Object.assign({}, old, fields));
+    } else toAdd.push(Object.assign({ id: newId_('AT'), date: date, playerId: playerId, createdAt: now }, fields));
+  });
+  appendRows_('Attendance', toAdd);
+  toDelete.sort((x, y) => y - x).forEach((row) => deleteRow_('Attendance', row));
+  return { date: date, records: readAll_('Attendance').filter((x) => x.date === date).map(parseAttendance_) };
+}
+
+/* ── 球員個人資料與通訊錄（只有教練看得到） ── */
+
+const PROFILE_TEXT_FIELDS = [
+  ['className', '班級', 20], ['batsThrows', '投打', 10], ['phone', '球員電話', 20], ['address', '地址', 100],
+  ['guardianName', '監護人姓名', 30], ['guardianRelation', '監護人關係', 10], ['guardianPhone', '監護人電話', 20],
+  ['guardian2Name', '第二聯絡人姓名', 30], ['guardian2Relation', '第二聯絡人關係', 10], ['guardian2Phone', '第二聯絡人電話', 20],
+  ['medicalNote', '健康／過敏注意事項', 300], ['note', '備註', 300],
+];
+
+function parseProfile_(r) {
+  const o = { playerId: r.playerId, birthday: r.birthday, height: r.height, weight: r.weight, updatedBy: r.updatedBy, updatedAt: r.updatedAt };
+  PROFILE_TEXT_FIELDS.forEach((f) => (o[f[0]] = r[f[0]]));
+  return o;
+}
+
+function listProfiles_() {
+  return { profiles: readAll_('PlayerProfiles').map(parseProfile_), players: readAll_('Players').map(parsePlayer_) };
+}
+
+function saveProfile_(ctx) {
+  const a = ctx.actor;
+  const p = ctx.payload;
+  const playerId = str_(p.playerId, '球員', { required: true, max: 20 });
+  if (!readAll_('Players').some((x) => x.id === playerId)) throw apiError_('NOT_FOUND', '找不到這位球員。');
+  const fields = {
+    playerId: playerId,
+    birthday: p.birthday ? dateStr_(p.birthday, '生日') : '',
+    height: numStr_(p.height, '身高（公分）', 250),
+    weight: numStr_(p.weight, '體重（公斤）', 200),
+    updatedBy: a.displayName,
+    updatedAt: nowIso_(),
+  };
+  PROFILE_TEXT_FIELDS.forEach((f) => (fields[f[0]] = str_(p[f[0]], f[1], { max: f[2] })));
+  const old = readAll_('PlayerProfiles').find((x) => x.playerId === playerId);
+  if (old) updateRow_('PlayerProfiles', old._row, fields);
+  else appendRow_('PlayerProfiles', fields);
+  audit_(a, '修改球員個人資料', playerId, '');
+  return { profile: parseProfile_(stringify_(fields)) };
+}
+
+/* ── 預算管理 ── */
+
+function parseBudgetItem_(r) {
+  return { id: r.id, year: r.year, type: r.type, name: r.name, amount: Number(r.amount) || 0, note: r.note };
+}
+
+function parseTransaction_(r) {
+  return { id: r.id, year: r.year, date: r.date, type: r.type, itemId: r.itemId, title: r.title, amount: Number(r.amount) || 0, handler: r.handler, note: r.note, createdBy: r.createdBy, updatedAt: r.updatedAt };
+}
+
+function yearStr_(v) {
+  return str_(v, '年度', { required: true, max: 20 });
+}
+
+/** 一個年度的預算項目與收支；years 是所有出現過的年度（讓畫面可以切換） */
+function listBudget_(ctx) {
+  const items = readAll_('BudgetItems');
+  const tx = readAll_('Transactions');
+  const years = {};
+  items.concat(tx).forEach((r) => (years[r.year] = true));
+  const year = ctx.payload.year ? yearStr_(ctx.payload.year) : '';
+  return {
+    years: Object.keys(years).sort().reverse(),
+    items: items.filter((r) => r.year === year).map(parseBudgetItem_),
+    transactions: tx.filter((r) => r.year === year).map(parseTransaction_).sort((x, y) => (x.date === y.date ? (x.updatedAt < y.updatedAt ? 1 : -1) : x.date < y.date ? 1 : -1)),
+  };
+}
+
+function saveBudgetItem_(ctx) {
+  const a = ctx.actor;
+  const p = ctx.payload;
+  if (MONEY_TYPES.indexOf(p.type) < 0) throw apiError_('INVALID', '請選擇「收入」或「支出」。');
+  const fields = {
+    year: yearStr_(p.year), type: p.type, name: str_(p.name, '項目名稱', { required: true, max: 30 }),
+    amount: intStr_(p.amount, '預算金額', 0, 100000000) || '0', note: str_(p.note, '備註', { max: 200 }), updatedAt: nowIso_(),
+  };
+  const all = readAll_('BudgetItems');
+  if (all.some((x) => x.id !== p.id && x.year === fields.year && x.type === fields.type && x.name === fields.name)) throw apiError_('INVALID', '這個年度已經有同名的' + fields.type + '項目。');
+  let row;
+  if (p.id) {
+    const old = all.find((x) => x.id === p.id);
+    if (!old) throw apiError_('NOT_FOUND', '找不到這個預算項目。');
+    if ((old.year !== fields.year || old.type !== fields.type) && readAll_('Transactions').some((t) => t.itemId === old.id)) throw apiError_('INVALID', '這個項目已經有收支紀錄，不能改年度或收支類別。');
+    row = Object.assign({}, old, fields);
+    updateRow_('BudgetItems', old._row, row);
+  } else {
+    row = Object.assign({ id: newId_('BI'), createdById: a.id, createdAt: fields.updatedAt }, fields);
+    appendRow_('BudgetItems', row);
+  }
+  audit_(a, p.id ? '修改預算項目' : '新增預算項目', row.id, fields.year + ' ' + fields.type + ' ' + fields.name + ' ' + fields.amount + ' 元');
+  return { item: parseBudgetItem_(stringify_(row)) };
+}
+
+function deleteBudgetItem_(ctx) {
+  const a = ctx.actor;
+  const r = readAll_('BudgetItems').find((x) => x.id === str_(ctx.payload.id, '預算項目', { required: true, max: 40 }));
+  if (!r) throw apiError_('NOT_FOUND', '找不到這個預算項目。');
+  const used = readAll_('Transactions').filter((t) => t.itemId === r.id).length;
+  if (used) throw apiError_('INVALID', '這個項目還有 ' + used + ' 筆收支紀錄，請先把那些紀錄改到其他項目或刪除。');
+  deleteRow_('BudgetItems', r._row);
+  audit_(a, '刪除預算項目', r.id, r.year + ' ' + r.type + ' ' + r.name);
+  return { deleted: r.id };
+}
+
+function saveTransaction_(ctx) {
+  const a = ctx.actor;
+  const p = ctx.payload;
+  if (MONEY_TYPES.indexOf(p.type) < 0) throw apiError_('INVALID', '請選擇「收入」或「支出」。');
+  const year = yearStr_(p.year);
+  const itemId = str_(p.itemId, '預算項目', { max: 40 });
+  if (itemId) {
+    const item = readAll_('BudgetItems').find((x) => x.id === itemId);
+    if (!item || item.year !== year || item.type !== p.type) throw apiError_('INVALID', '預算項目和年度或收支類別不相符。');
+  }
+  const amount = intStr_(p.amount, '金額', 1, 100000000);
+  if (!amount) throw apiError_('INVALID', '請填寫「金額」。');
+  const fields = {
+    year: year, date: dateStr_(p.date, '日期'), type: p.type, itemId: itemId, title: str_(p.title, '摘要', { required: true, max: 60 }), amount: amount,
+    handler: str_(p.handler, '經手人', { max: 20 }), note: str_(p.note, '備註', { max: 200 }), updatedAt: nowIso_(),
+  };
+  let row;
+  if (p.id) {
+    const old = readAll_('Transactions').find((x) => x.id === p.id);
+    if (!old) throw apiError_('NOT_FOUND', '找不到這筆收支。');
+    row = Object.assign({}, old, fields);
+    updateRow_('Transactions', old._row, row);
+  } else {
+    row = Object.assign({ id: newId_('TX'), createdById: a.id, createdBy: a.displayName, createdAt: fields.updatedAt }, fields);
+    appendRow_('Transactions', row);
+  }
+  audit_(a, p.id ? '修改收支' : '新增收支', row.id, fields.date + ' ' + fields.type + ' ' + fields.title + ' ' + fields.amount + ' 元');
+  return { transaction: parseTransaction_(stringify_(row)) };
+}
+
+function deleteTransaction_(ctx) {
+  const a = ctx.actor;
+  const r = readAll_('Transactions').find((x) => x.id === str_(ctx.payload.id, '收支', { required: true, max: 40 }));
+  if (!r) throw apiError_('NOT_FOUND', '找不到這筆收支。');
+  deleteRow_('Transactions', r._row);
+  audit_(a, '刪除收支', r.id, r.date + ' ' + r.type + ' ' + r.title + ' ' + r.amount + ' 元');
+  return { deleted: r.id };
+}
+
+/* ── 賽事管理 ── */
+
+function parseTournament_(r) {
+  return {
+    id: r.id, name: r.name, kind: r.kind, startDate: r.startDate, endDate: r.endDate, location: r.location, organizer: r.organizer,
+    signupDeadline: r.signupDeadline, fee: Number(r.fee) || 0, result: r.result, playerIds: r.playerIds ? r.playerIds.split(',') : [], note: r.note, updatedAt: r.updatedAt,
+  };
+}
+
+function parseGame_(r) {
+  return {
+    id: r.id, tournamentId: r.tournamentId, date: r.date, time: r.time, opponent: r.opponent, location: r.location, side: r.side,
+    ourScore: r.ourScore === '' ? null : Number(r.ourScore), oppScore: r.oppScore === '' ? null : Number(r.oppScore), note: r.note,
+  };
+}
+
+/** 全部賽事與每一場比賽；names 是參賽球員的姓名（球員、家長也看得到參賽名單） */
+function listTournaments_() {
+  const tournaments = readAll_('Tournaments').map(parseTournament_);
+  tournaments.sort((x, y) => (x.startDate < y.startDate ? 1 : -1));
+  const used = {};
+  tournaments.forEach((t) => t.playerIds.forEach((id) => (used[id] = true)));
+  const names = {};
+  readAll_('Players').forEach((p) => {
+    if (used[p.id]) names[p.id] = (p.number ? '#' + p.number + ' ' : '') + p.name;
+  });
+  const games = readAll_('Games').map(parseGame_);
+  games.sort((x, y) => (x.date + x.time < y.date + y.time ? -1 : 1));
+  return { tournaments: tournaments, games: games, names: names, today: today_() };
+}
+
+function saveTournament_(ctx) {
+  const a = ctx.actor;
+  const p = ctx.payload;
+  if (TOURNAMENT_KINDS.indexOf(p.kind) < 0) throw apiError_('INVALID', '請選擇賽事類別。');
+  const startDate = dateStr_(p.startDate, '開始日期');
+  const endDate = p.endDate ? dateStr_(p.endDate, '結束日期') : startDate;
+  if (endDate < startDate) throw apiError_('INVALID', '結束日期不能早於開始日期。');
+  const fields = {
+    name: str_(p.name, '賽事名稱', { required: true, max: 60 }), kind: p.kind, startDate: startDate, endDate: endDate,
+    location: str_(p.location, '地點', { max: 60 }), organizer: str_(p.organizer, '主辦單位', { max: 60 }),
+    signupDeadline: p.signupDeadline ? dateStr_(p.signupDeadline, '報名截止日') : '', fee: intStr_(p.fee, '報名費', 0, 10000000),
+    result: str_(p.result, '成績', { max: 40 }), playerIds: requirePlayerIds_(p.playerIds).join(','), note: str_(p.note, '備註', { max: 500 }), updatedAt: nowIso_(),
+  };
+  let row;
+  if (p.id) {
+    const old = readAll_('Tournaments').find((x) => x.id === p.id);
+    if (!old) throw apiError_('NOT_FOUND', '找不到這個賽事。');
+    row = Object.assign({}, old, fields);
+    updateRow_('Tournaments', old._row, row);
+  } else {
+    row = Object.assign({ id: newId_('TN'), createdById: a.id, createdAt: fields.updatedAt }, fields);
+    appendRow_('Tournaments', row);
+  }
+  return { tournament: parseTournament_(stringify_(row)) };
+}
+
+/** 刪除賽事會連同它的每一場比賽一起刪除 */
+function deleteTournament_(ctx) {
+  const a = ctx.actor;
+  const r = readAll_('Tournaments').find((x) => x.id === str_(ctx.payload.id, '賽事', { required: true, max: 40 }));
+  if (!r) throw apiError_('NOT_FOUND', '找不到這個賽事。');
+  const rows = readAll_('Games').filter((g) => g.tournamentId === r.id).map((g) => g._row).sort((x, y) => y - x);
+  rows.forEach((row) => deleteRow_('Games', row));
+  deleteRow_('Tournaments', r._row);
+  audit_(a, '刪除賽事', r.id, r.name + '（比賽 ' + rows.length + ' 場）');
+  return { deleted: r.id, games: rows.length };
+}
+
+function saveGame_(ctx) {
+  const p = ctx.payload;
+  const tournamentId = str_(p.tournamentId, '賽事', { required: true, max: 40 });
+  if (!readAll_('Tournaments').some((x) => x.id === tournamentId)) throw apiError_('NOT_FOUND', '找不到這個賽事。');
+  if (GAME_SIDES.indexOf(p.side || '') < 0) throw apiError_('INVALID', '請選擇先攻或後攻。');
+  const ourScore = intStr_(p.ourScore, '我方得分', 0, 99);
+  const oppScore = intStr_(p.oppScore, '對手得分', 0, 99);
+  if ((ourScore === '') !== (oppScore === '')) throw apiError_('INVALID', '比分請兩邊都填，或兩邊都空白。');
+  const fields = {
+    tournamentId: tournamentId, date: dateStr_(p.date, '比賽日期'), time: timeStr_(p.time, '比賽時間'), opponent: str_(p.opponent, '對手', { required: true, max: 40 }),
+    location: str_(p.location, '場地', { max: 60 }), side: p.side || '', ourScore: ourScore, oppScore: oppScore, note: str_(p.note, '備註', { max: 300 }), updatedAt: nowIso_(),
+  };
+  let row;
+  if (p.id) {
+    const old = readAll_('Games').find((x) => x.id === p.id);
+    if (!old) throw apiError_('NOT_FOUND', '找不到這場比賽。');
+    row = Object.assign({}, old, fields);
+    updateRow_('Games', old._row, row);
+  } else {
+    row = Object.assign({ id: newId_('GM'), createdById: ctx.actor.id, createdAt: fields.updatedAt }, fields);
+    appendRow_('Games', row);
+  }
+  return { game: parseGame_(stringify_(row)) };
+}
+
+function deleteGame_(ctx) {
+  const r = readAll_('Games').find((x) => x.id === str_(ctx.payload.id, '比賽', { required: true, max: 40 }));
+  if (!r) throw apiError_('NOT_FOUND', '找不到這場比賽。');
+  deleteRow_('Games', r._row);
+  return { deleted: r.id };
+}
+
 // ───────────────────────── 試算表存取 ─────────────────────────
 
 /** 一次寫入多列（大量匯入時比逐列 appendRow 快很多） */
@@ -2692,8 +3101,42 @@ function appendRows_(name, objs) {
   sh.getRange(sh.getLastRow() + 1, 1, objs.length, headers.length).setValues(objs.map((o) => headers.map((h) => cell_(o[h]))));
 }
 
+/**
+ * 球隊管理（練球、出缺席、通訊錄、預算、賽事）的資料放在「另一份」試算表，避免原本的資料庫越來越大。
+ * 帳號與球員名單仍然在原本的試算表。
+ */
+const TEAM_SHEETS = ['PracticeDays', 'Attendance', 'PlayerProfiles', 'BudgetItems', 'Transactions', 'Tournaments', 'Games'];
+const TEAM_DB_NAME = '東勢國中棒球隊｜球隊管理 資料庫';
+const TEAM_DB_PROP = 'teamSpreadsheetId';
+let TEAM_SS_ = null;
+
+/** 球隊管理試算表；還沒有的話自動建立一份新的，並記住它的 ID */
+function teamSpreadsheet_() {
+  if (TEAM_SS_) return TEAM_SS_;
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty(TEAM_DB_PROP);
+  if (id) {
+    try {
+      TEAM_SS_ = SpreadsheetApp.openById(id);
+      return TEAM_SS_;
+    } catch (e) {
+      throw apiError_('SETUP', '打不開球隊管理試算表（可能被刪除或移到垃圾桶），請在 Apps Script 執行 setupTeamDb()。');
+    }
+  }
+  const ss = SpreadsheetApp.create(TEAM_DB_NAME);
+  ss.setSpreadsheetTimeZone(TZ);
+  props.setProperty(TEAM_DB_PROP, ss.getId());
+  console.log('✅ 已建立新的球隊管理試算表：' + ss.getUrl());
+  TEAM_SS_ = ss;
+  return ss;
+}
+
+function spreadsheetFor_(name) {
+  return TEAM_SHEETS.indexOf(name) >= 0 ? teamSpreadsheet_() : SpreadsheetApp.getActiveSpreadsheet();
+}
+
 function sheet_(name) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = spreadsheetFor_(name);
   const sh = ss.getSheetByName(name);
   if (sh) return sh;
   // 新版本新增的工作表，第一次用到時自動建立
@@ -2866,8 +3309,9 @@ function setup() {
   ss.setSpreadsheetTimeZone(TZ);
   if (ss.getName() === '未命名的試算表' || ss.getName() === 'Untitled spreadsheet') ss.rename('東勢國中棒球隊｜冒險訓練筆記本 資料庫');
   Object.keys(SCHEMA).forEach((name) => {
-    if (!ss.getSheetByName(name)) ss.insertSheet(name);
+    if (TEAM_SHEETS.indexOf(name) < 0 && !ss.getSheetByName(name)) ss.insertSheet(name);
   });
+  setupTeamDb();
   migrateSchema_();
   // 刪除預設的空白工作表
   ['工作表1', 'Sheet1'].forEach((n) => {
@@ -2889,9 +3333,8 @@ function setup() {
  * 欄位順序和程式不同時停止，避免資料對錯欄。
  */
 function migrateSchema_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
   Object.keys(SCHEMA).forEach((name) => {
-    const sh = ss.getSheetByName(name);
+    const sh = spreadsheetFor_(name).getSheetByName(name);
     if (!sh) return; // 還沒有的表，第一次使用時會自動建立
     const headers = SCHEMA[name];
     const current = sh.getRange(1, 1, 1, headers.length).getDisplayValues()[0];
@@ -2909,6 +3352,19 @@ function migrateSchema_() {
   });
 }
 
+/** 建立（或檢查）球隊管理的獨立試算表與它的 7 張工作表，網址會顯示在執行記錄。可以重複執行。 */
+function setupTeamDb() {
+  const ss = teamSpreadsheet_();
+  TEAM_SHEETS.forEach((name) => {
+    if (!ss.getSheetByName(name)) createSheet_(ss, name);
+  });
+  ['工作表1', 'Sheet1'].forEach((n) => {
+    const sh = ss.getSheetByName(n);
+    if (sh && sh.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(sh);
+  });
+  console.log('✅ 球隊管理試算表：' + ss.getUrl());
+}
+
 /** 教練忘記登入碼時，在編輯器執行，新的登入碼會顯示在執行記錄 */
 function resetCoachCode() {
   const u = readAll_('Users').find((x) => x.loginId === 'coach');
@@ -2923,12 +3379,15 @@ const BACKUP_FOLDER_NAME = '東勢國中棒球隊 資料庫備份';
 
 /** 在雲端硬碟的「東勢國中棒球隊 資料庫備份」資料夾建立一份帶日期的備份 */
 function backupNow() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const folders = DriveApp.getFoldersByName(BACKUP_FOLDER_NAME);
   const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(BACKUP_FOLDER_NAME);
-  const name = ss.getName() + ' 備份 ' + Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HHmm');
-  const copy = DriveApp.getFileById(ss.getId()).makeCopy(name, folder);
-  console.log('✅ 已建立備份：' + copy.getName() + '（資料夾：' + BACKUP_FOLDER_NAME + '）');
+  const list = [SpreadsheetApp.getActiveSpreadsheet()];
+  if (PropertiesService.getScriptProperties().getProperty(TEAM_DB_PROP)) list.push(teamSpreadsheet_());
+  list.forEach((ss) => {
+    const name = ss.getName() + ' 備份 ' + Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HHmm');
+    const copy = DriveApp.getFileById(ss.getId()).makeCopy(name, folder);
+    console.log('✅ 已建立備份：' + copy.getName() + '（資料夾：' + BACKUP_FOLDER_NAME + '）');
+  });
 }
 
 /** 設定每週一凌晨 3 點自動備份（重複執行不會建立第二個排程） */
@@ -3476,6 +3935,75 @@ function runSelfTests() {
 
     expectFail('每天的野外對戰次數有上限', call('startBattle', { mode: 'pve', areaId: 'field', playerMonsterId: pmA.id }, tPA, Utilities.getUuid()), 'INVALID');
 
+    // 23. 球隊管理：練球通知、出缺席、通訊錄、預算、賽事（練球用 2099 年的日期，不會動到真正的練球安排）
+    {
+      const pd = (d) => '2099-01-0' + d;
+      const pw = call('savePracticeWeek', { days: [{ date: pd(5), type: '練球', startTime: '16:00', endTime: '18:00', location: '校內球場', content: '打擊練習' }, { date: pd(6), type: '休息' }] }, tCoach, Utilities.getUuid());
+      results.push([pw.ok && pw.data.saved === 2, '教練可以一次儲存一週練球（含休息日）', pw.ok ? '' : pw.error]);
+      const lp = call('listPractice', { from: pd(1), to: pd(9) }, tPA);
+      results.push([lp.ok && lp.data.days.length === 2 && lp.data.days[1].type === '休息', '球員看得到練球通知與休息日', lp.ok ? String(lp.data.days.length) : lp.error]);
+      expectFail('球員不能修改練球通知', call('savePracticeWeek', { days: [{ date: pd(5), type: '休息' }] }, tPA), 'FORBIDDEN');
+      expectFail('練球結束時間早於開始時間會被拒絕', call('savePracticeWeek', { days: [{ date: pd(7), type: '練球', startTime: '18:00', endTime: '16:00' }] }, tCoach), 'INVALID');
+      expectFail('練球類別不正確會被拒絕', call('savePracticeWeek', { days: [{ date: pd(7), type: '放假囉' }] }, tCoach), 'INVALID');
+      const pw2 = call('savePracticeWeek', { days: [{ date: pd(5), type: '練球', startTime: '15:30', endTime: '18:00' }, { date: pd(6), type: '' }] }, tCoach, Utilities.getUuid());
+      const lp2 = call('listPractice', { from: pd(1), to: pd(9) }, tCoach);
+      results.push([pw2.ok && lp2.data.days.length === 1 && lp2.data.days[0].startTime === '15:30', '可以修改練球時間、清空某一天的安排（不會重複）', pw2.ok ? '' : pw2.error]);
+
+      const att = call('saveAttendance', { date: today, records: [{ playerId: 'TEST-PA', status: '出席' }, { playerId: 'TEST-PB', status: '事假', reason: '家裡有事' }] }, tCoach, Utilities.getUuid());
+      results.push([att.ok && att.data.records.filter((r) => r.playerId.indexOf('TEST-') === 0).length === 2, '教練可以點名（出席、請假與原因）', att.ok ? '' : att.error]);
+      const att2 = call('saveAttendance', { date: today, records: [{ playerId: 'TEST-PA', status: '遲到' }, { playerId: 'TEST-PB', status: '' }] }, tCoach, Utilities.getUuid());
+      const la = call('listAttendance', { from: today, to: today }, tCoach).data.records.filter((r) => r.playerId.indexOf('TEST-') === 0);
+      results.push([att2.ok && la.length === 1 && la[0].status === '遲到', '同一天再點名會更新、不會重複；空白＝取消紀錄', JSON.stringify(la)]);
+      expectFail('出缺席狀態不正確會被拒絕', call('saveAttendance', { date: today, records: [{ playerId: 'TEST-PA', status: '翹課' }] }, tCoach), 'INVALID');
+      expectFail('不存在的球員不能點名', call('saveAttendance', { date: today, records: [{ playerId: 'NOPE-1', status: '出席' }] }, tCoach), 'NOT_FOUND');
+      expectFail('出缺席一次最多查詢一年多', call('listAttendance', { from: '2020-01-01', to: '2026-01-01' }, tCoach), 'INVALID');
+
+      const prof = call('saveProfile', { playerId: 'TEST-PA', guardianName: '測試家長', guardianRelation: '母', guardianPhone: '0912-345-678', height: '165.5', birthday: '2012-05-01' }, tCoach, Utilities.getUuid());
+      const lpf = call('listProfiles', {}, tCoach);
+      results.push([prof.ok && lpf.ok && lpf.data.profiles.some((x) => x.playerId === 'TEST-PA' && x.guardianPhone === '0912-345-678' && x.height === '165.5'), '教練可以填寫球員個人資料與通訊錄', prof.ok ? '' : prof.error]);
+      call('saveProfile', { playerId: 'TEST-PA', guardianName: '測試家長二', height: '166' }, tCoach, Utilities.getUuid());
+      results.push([readAll_('PlayerProfiles').filter((x) => x.playerId === 'TEST-PA').length === 1, '再次儲存個人資料會更新同一列，不會重複', '']);
+      expectFail('身高格式錯誤會被拒絕', call('saveProfile', { playerId: 'TEST-PA', height: 'abc' }, tCoach), 'INVALID');
+      expectFail('生日格式錯誤會被拒絕', call('saveProfile', { playerId: 'TEST-PA', birthday: '2012/13/40' }, tCoach), 'INVALID');
+
+      const yr = 'TEST-年度';
+      const bi = call('saveBudgetItem', { year: yr, type: '支出', name: '球具', amount: '10,000' }, tCoach, Utilities.getUuid());
+      results.push([bi.ok && bi.data.item.amount === 10000, '教練可以新增預算項目（金額可以有逗號）', bi.ok ? '' : bi.error]);
+      expectFail('同一年度不能有同名的預算項目', call('saveBudgetItem', { year: yr, type: '支出', name: '球具', amount: '1' }, tCoach), 'INVALID');
+      const biIn = call('saveBudgetItem', { year: yr, type: '收入', name: '家長會補助', amount: '20000' }, tCoach, Utilities.getUuid());
+      const biId = bi.ok ? bi.data.item.id : '';
+      const tx1 = call('saveTransaction', { year: yr, date: today, type: '支出', itemId: biId, title: '購買球棒', amount: 3500, handler: '教練' }, tCoach, Utilities.getUuid());
+      expectOk('教練可以記一筆支出', tx1);
+      expectOk('教練可以記一筆收入', call('saveTransaction', { year: yr, date: today, type: '收入', itemId: biIn.ok ? biIn.data.item.id : '', title: '家長會補助款', amount: 20000 }, tCoach, Utilities.getUuid()));
+      expectFail('收入不能記到支出的預算項目', call('saveTransaction', { year: yr, date: today, type: '收入', itemId: biId, title: 'x', amount: 1 }, tCoach), 'INVALID');
+      expectFail('金額必須大於 0', call('saveTransaction', { year: yr, date: today, type: '支出', itemId: biId, title: 'x', amount: 0 }, tCoach), 'INVALID');
+      expectFail('金額不能有小數', call('saveTransaction', { year: yr, date: today, type: '支出', itemId: biId, title: 'x', amount: '10.5' }, tCoach), 'INVALID');
+      const lb = call('listBudget', { year: yr }, tCoach);
+      results.push([lb.ok && lb.data.years.indexOf(yr) >= 0 && lb.data.items.length === 2 && lb.data.transactions.length === 2, '可以依年度讀取預算項目與收支', lb.ok ? lb.data.items.length + ' / ' + lb.data.transactions.length : lb.error]);
+      expectFail('還有收支紀錄的預算項目不能刪除', call('deleteBudgetItem', { id: biId }, tCoach), 'INVALID');
+      const txId = tx1.ok ? tx1.data.transaction.id : '';
+      expectOk('可以刪除一筆收支', call('deleteTransaction', { id: txId }, tCoach, Utilities.getUuid()));
+      expectOk('沒有收支紀錄之後就能刪除預算項目', call('deleteBudgetItem', { id: biId }, tCoach, Utilities.getUuid()));
+      const logs23 = readAll_('AuditLogs');
+      results.push([logs23.some((l) => l.action === '新增收支' && l.target === txId) && logs23.some((l) => l.action === '刪除收支' && l.target === txId), '收支的新增與刪除都會寫入操作紀錄', '']);
+
+      const tnIn = { name: '測試盃', kind: '盃賽', startDate: today, endDate: addDaysStr_(today, 2), location: '測試球場', fee: '1500', playerIds: ['TEST-PA', 'TEST-PB'] };
+      const tn = call('saveTournament', tnIn, tCoach, Utilities.getUuid());
+      expectOk('教練可以新增盃賽與參賽名單', tn);
+      expectFail('賽事結束日期早於開始日期會被拒絕', call('saveTournament', Object.assign({}, tnIn, { endDate: addDaysStr_(today, -1) }), tCoach), 'INVALID');
+      expectFail('不存在的球員不能加入參賽名單', call('saveTournament', Object.assign({}, tnIn, { playerIds: ['NOPE-1'] }), tCoach), 'INVALID');
+      expectFail('球員不能新增賽事', call('saveTournament', tnIn, tPA), 'FORBIDDEN');
+      const tnId = tn.ok ? tn.data.tournament.id : '';
+      const gm = call('saveGame', { tournamentId: tnId, date: today, time: '09:00', opponent: '測試國中', side: '先攻', ourScore: '5', oppScore: '3' }, tCoach, Utilities.getUuid());
+      expectOk('教練可以新增比賽與比分', gm);
+      expectFail('比分只填一邊會被拒絕', call('saveGame', { tournamentId: tnId, date: today, opponent: 'x', ourScore: '5', oppScore: '' }, tCoach), 'INVALID');
+      const lt = call('listTournaments', {}, tPA);
+      const myT = lt.ok ? lt.data.tournaments.find((t) => t.id === tnId) : null;
+      results.push([!!myT && myT.playerIds.length === 2 && !!lt.data.names['TEST-PA'] && lt.data.games.some((g) => gm.ok && g.id === gm.data.game.id && g.ourScore === 5), '球員看得到賽事、參賽名單與比分', lt.ok ? '' : lt.error]);
+      const dt = call('deleteTournament', { id: tnId }, tCoach, Utilities.getUuid());
+      results.push([dt.ok && dt.data.games === 1 && !readAll_('Games').some((g) => g.tournamentId === tnId), '刪除賽事會連同它的比賽一起刪除', dt.ok ? '' : dt.error]);
+    }
+
     // 6. 停用帳號立即失效
     const ub = readAll_('Users').find((u) => u.id === pbAcc.id);
     updateRow_('Users', ub._row, Object.assign({}, ub, { active: 'FALSE' }));
@@ -3537,7 +4065,8 @@ function cleanupTestData_(created) {
   [
     'DailyNotes', 'FitnessTests', 'Goals', 'Rules', 'KnowledgeArticles', 'Announcements',
     'TaskCompletions', 'Tasks', 'PlayerMonsters', 'MonsterProgress', 'Monsters', 'Wallets', 'RewardLogs', 'QuizPasses',
-    'ExamScores', 'Battles', 'Invites', 'Messages', 'SchoolRecords', 'Events', 'AuditLogs', 'Users', 'Players',
+    'ExamScores', 'Battles', 'Invites', 'Messages', 'SchoolRecords', 'Events',
+    'PracticeDays', 'Attendance', 'PlayerProfiles', 'Transactions', 'BudgetItems', 'Games', 'Tournaments', 'AuditLogs', 'Users', 'Players',
   ].forEach((name) => {
     const rows = readAll_(name).filter(isTest).map((r) => r._row).sort((a, b) => b - a);
     rows.forEach((row) => deleteRow_(name, row));

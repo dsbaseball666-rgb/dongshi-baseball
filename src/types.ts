@@ -488,3 +488,111 @@ export interface Outcome<R> {
   db: DemoDB;
   result: R;
 }
+
+/* ───────── 5.7 球隊管理 ───────── */
+
+export type PracticeType = '練球' | '休息' | '比賽' | '其他';
+
+/** 一週練球通知的一天（一天最多一筆） */
+export interface PracticeDay {
+  id: string;
+  date: string;
+  type: PracticeType;
+  startTime: string;
+  endTime: string;
+  location: string;
+  content: string;
+  note: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export type AttendanceStatus = '出席' | '遲到' | '早退' | '事假' | '病假' | '公假' | '缺席';
+
+export interface AttendanceRecord {
+  id: string;
+  date: string;
+  playerId: string;
+  status: AttendanceStatus;
+  reason: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+/** 球員個人資料與通訊錄（只有教練看得到） */
+export interface PlayerProfile {
+  playerId: string;
+  birthday: string;
+  className: string;
+  batsThrows: string;
+  height: string;
+  weight: string;
+  phone: string;
+  address: string;
+  guardianName: string;
+  guardianRelation: string;
+  guardianPhone: string;
+  guardian2Name: string;
+  guardian2Relation: string;
+  guardian2Phone: string;
+  medicalNote: string;
+  note: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export type MoneyType = '收入' | '支出';
+
+export interface BudgetItem {
+  id: string;
+  year: string;
+  type: MoneyType;
+  name: string;
+  amount: number;
+  note: string;
+}
+
+export interface Transaction {
+  id: string;
+  year: string;
+  date: string;
+  type: MoneyType;
+  itemId: string;
+  title: string;
+  amount: number;
+  handler: string;
+  note: string;
+  createdBy: string;
+  updatedAt: string;
+}
+
+export type TournamentKind = '盃賽' | '聯賽' | '友誼賽' | '其他';
+
+export interface Tournament {
+  id: string;
+  name: string;
+  kind: TournamentKind;
+  startDate: string;
+  endDate: string;
+  location: string;
+  organizer: string;
+  signupDeadline: string;
+  fee: number;
+  result: string;
+  playerIds: string[];
+  note: string;
+  updatedAt: string;
+}
+
+export interface Game {
+  id: string;
+  tournamentId: string;
+  date: string;
+  time: string;
+  opponent: string;
+  location: string;
+  side: '' | '先攻' | '後攻';
+  ourScore: number | null;
+  oppScore: number | null;
+  note: string;
+}

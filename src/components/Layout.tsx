@@ -8,6 +8,8 @@ import { Alert, LoadingState } from './UI';
 
 export const NAV_ITEMS: { to: string; label: string; icon: string; roles: Role[] }[] = [
   { to: '/', label: '冒險基地', icon: '🏕️', roles: ['coach', 'player', 'parent', 'teacher', 'office'] },
+  { to: '/team', label: '球隊管理', icon: '📋', roles: ['coach'] },
+  { to: '/team', label: '練球與賽事', icon: '📅', roles: ['player', 'parent', 'teacher', 'office'] },
   { to: '/hub', label: '親師平台', icon: '🤝', roles: ['coach', 'parent', 'teacher', 'office'] },
   { to: '/notes', label: '棒球筆記', icon: '📒', roles: ['coach', 'player'] },
   { to: '/goals', label: '目標進度', icon: '🎯', roles: ['coach', 'player'] },
