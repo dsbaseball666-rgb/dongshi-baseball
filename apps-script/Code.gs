@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.7.0';
+const API_VERSION = '5.8.0';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -176,6 +176,9 @@ const ROUTES = {
   addFitness: { roles: COACH, write: true, fn: addFitness_ },
   updateFitness: { roles: COACH, write: true, fn: updateFitness_ },
   deleteFitness: { roles: COACH, write: true, fn: deleteFitness_ },
+  // 體能檢測系統（獨立網頁 fitness.html）：全隊紀錄、整隊一次輸入
+  listTeamFitness: { roles: COACH, fn: () => ({ records: readAll_('FitnessTests').map(parseFitness_) }) },
+  saveFitnessBatch: { roles: COACH, write: true, fn: saveFitnessBatch_ },
   // 目標
   listGoals: { roles: COACH_PLAYER, fn: listGoals_ },
   createGoal: { roles: COACH_PLAYER, write: true, fn: createGoal_ },
@@ -559,6 +562,56 @@ function deleteFitness_(ctx) {
   deleteRow_('FitnessTests', rec._row);
   audit_(a, '刪除體能檢測', rec.playerId, (FITNESS_ITEMS[rec.item] ? FITNESS_ITEMS[rec.item].label : rec.item) + ' ' + rec.value + rec.unit + '（' + rec.date + '）');
   return { deleted: id };
+}
+
+/**
+ * 整隊一次輸入同一天、同一個項目的成績。
+ * entries：[{ playerId, value, id? }]；有 id 代表修改那一筆（例如當天已經輸入過），沒有 id 就新增。
+ * 全部先檢查，有任何一筆不合格就整批不寫入。
+ */
+function saveFitnessBatch_(ctx) {
+  const a = ctx.actor;
+  const p = ctx.payload;
+  const entries = Array.isArray(p.entries) ? p.entries : [];
+  if (!entries.length) throw apiError_('INVALID', '請至少輸入一位球員的成績。');
+  if (entries.length > 200) throw apiError_('INVALID', '一次最多輸入 200 筆。');
+  const players = {};
+  readAll_('Players').forEach((x) => (players[x.id] = x));
+  const existing = {};
+  readAll_('FitnessTests').forEach((f) => (existing[f.id] = f));
+  const seen = {};
+  const now = nowIso_();
+  const adds = [];
+  const updates = [];
+  entries.forEach((e) => {
+    const playerId = str_(e && e.playerId, '球員', { required: true, max: 20 });
+    const player = players[playerId];
+    if (!player) throw apiError_('NOT_FOUND', '找不到這位球員：' + playerId);
+    if (seen[playerId]) throw apiError_('INVALID', player.name + '的成績重複輸入了。');
+    seen[playerId] = true;
+    let v;
+    try {
+      v = validFitness_({ item: p.item, date: p.date, value: e.value, note: p.note });
+    } catch (err) {
+      if (err.apiCode) err.message = player.name + '：' + err.message;
+      throw err;
+    }
+    if (e.id) {
+      const rec = existing[String(e.id)];
+      if (!rec || rec.playerId !== playerId) throw apiError_('NOT_FOUND', '找不到' + player.name + '要修改的紀錄（可能已被刪除），請重新整理。');
+      updates.push({ rec: rec, row: Object.assign({}, rec, { date: v.date, item: v.item, value: v.value, unit: v.unit, note: v.note, updatedAt: now }) });
+    } else {
+      adds.push({ id: newId_('F'), playerId: playerId, date: v.date, item: v.item, value: v.value, unit: v.unit, note: v.note, createdBy: a.displayName, createdAt: now, updatedAt: now });
+    }
+  });
+  appendRows_('FitnessTests', adds);
+  updates.forEach((u) => updateRow_('FitnessTests', u.rec._row, u.row));
+  audit_(a, '整隊輸入體能檢測', FITNESS_ITEMS[p.item].label + '（' + p.date + '）', '新增 ' + adds.length + ' 筆、修改 ' + updates.length + ' 筆');
+  return {
+    added: adds.length,
+    updated: updates.length,
+    records: adds.concat(updates.map((u) => u.row)).map((r) => parseFitness_(stringify_(r))),
+  };
 }
 
 // ───────────────────────── 目標 ─────────────────────────
@@ -3528,6 +3581,23 @@ function runSelfTests() {
     expectOk('教練可以修改體能檢測', call('updateFitness', { id: fit[0].id, playerId: 'TEST-PA', date: today, item: 'pushup', value: 22, note: '修正' }, tCoach, Utilities.getUuid()));
     expectFail('球員不能刪除體能檢測', call('deleteFitness', { id: fit[0].id }, tA), 'FORBIDDEN');
     expectOk('教練可以刪除體能檢測', call('deleteFitness', { id: fit[0].id }, tCoach, Utilities.getUuid()));
+
+    // 4-1. 體能檢測系統：整隊一次輸入、讀取全隊紀錄
+    const fb1 = call('saveFitnessBatch', { date: today, item: 'grip', note: '整隊', entries: [{ playerId: 'TEST-PA', value: 30.5 }, { playerId: 'TEST-PB', value: 28 }] }, tCoach, Utilities.getUuid());
+    const teamFit = call('listTeamFitness', {}, tCoach);
+    const gripA = teamFit.ok ? teamFit.data.records.find((f) => f.playerId === 'TEST-PA' && f.item === 'grip') : null;
+    results.push([fb1.ok && fb1.data.added === 2 && !!gripA && gripA.value === 30.5 && gripA.note === '整隊', '教練可以整隊一次輸入成績，並讀取全隊紀錄', fb1.ok ? '' : fb1.error]);
+    const fb2 = call('saveFitnessBatch', { date: today, item: 'grip', entries: [{ playerId: 'TEST-PA', value: 31, id: gripA ? gripA.id : 'x' }] }, tCoach, Utilities.getUuid());
+    const gripA2 = call('listTeamFitness', {}, tCoach).data.records.filter((f) => f.playerId === 'TEST-PA' && f.item === 'grip');
+    results.push([fb2.ok && fb2.data.updated === 1 && gripA2.length === 1 && gripA2[0].value === 31, '整隊輸入時帶 id 會修改原本那一筆，不會多一筆', fb2.ok ? '' : fb2.error]);
+    const before = readAll_('FitnessTests').length;
+    expectFail('整隊輸入：其中一位數值不合理，整批都不寫入', call('saveFitnessBatch', { date: today, item: 'grip', entries: [{ playerId: 'TEST-PA', value: 30 }, { playerId: 'TEST-PB', value: 999 }] }, tCoach, Utilities.getUuid()), 'INVALID');
+    results.push([readAll_('FitnessTests').length === before, '整隊輸入失敗時沒有寫入任何一筆', '']);
+    expectFail('整隊輸入：同一位球員不能出現兩次', call('saveFitnessBatch', { date: today, item: 'grip', entries: [{ playerId: 'TEST-PA', value: 30 }, { playerId: 'TEST-PA', value: 31 }] }, tCoach, Utilities.getUuid()), 'INVALID');
+    expectFail('整隊輸入：未來日期會被拒絕', call('saveFitnessBatch', { date: '2999-01-01', item: 'grip', entries: [{ playerId: 'TEST-PA', value: 30 }] }, tCoach, Utilities.getUuid()), 'INVALID');
+    expectFail('整隊輸入：不能修改別的球員的紀錄', call('saveFitnessBatch', { date: today, item: 'grip', entries: [{ playerId: 'TEST-PB', value: 30, id: gripA ? gripA.id : 'x' }] }, tCoach, Utilities.getUuid()), 'NOT_FOUND');
+    expectFail('球員不能整隊輸入體能檢測', call('saveFitnessBatch', { date: today, item: 'grip', entries: [{ playerId: 'TEST-PA', value: 99 }] }, tA, Utilities.getUuid()), 'FORBIDDEN');
+    expectFail('球員不能讀全隊體能紀錄', call('listTeamFitness', {}, tA), 'FORBIDDEN');
 
     // 5. 名單與管理權限
     const plA = call('listPlayers', {}, tA).data.players;

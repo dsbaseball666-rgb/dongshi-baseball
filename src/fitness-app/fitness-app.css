@@ -1,0 +1,134 @@
+/* 體能檢測系統（fitness.html）專用樣式；共用的按鈕、卡片、表格沿用 styles.css */
+
+.fs-main { width: 100%; max-width: 1280px; margin: 0 auto; }
+.fs-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.fs-stats > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: var(--paper); border: 3px solid var(--line); border-radius: var(--radius); }
+.fs-stats strong { font-size: 1.35rem; }
+.fs-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.fs-filters .field { flex: 1 1 180px; }
+.fs-check { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 0.9rem; cursor: pointer; }
+
+.fs-table th { white-space: nowrap; }
+.fs-table th .small { display: block; font-weight: 400; }
+.fs-table td.fs-up { color: #1b5e20; background: #eaf7e6; }
+.fs-table td.fs-down { color: #b71c1c; background: #fdeceb; }
+.fs-arrow { margin-left: 3px; font-size: 0.75rem; }
+tr.fs-first td { background: #fff8e1; }
+
+.fs-batch td { vertical-align: middle; }
+.fs-input { width: 110px; font-size: 1.05rem; font-weight: 700; margin-right: 6px; }
+.fs-input-error { border-color: var(--red) !important; box-shadow: 0 0 0 2px rgba(229, 57, 53, 0.3); }
+.fs-error { color: var(--red); font-size: 0.82rem; margin-top: 2px; }
+tr.fs-changed td { background: #fffbe6; }
+.fs-save-bar { position: sticky; bottom: 0; padding: 10px 0 4px; background: var(--card); }
+kbd { font-family: inherit; font-size: 0.8rem; padding: 0 5px; border: 2px solid var(--line); border-radius: 4px; background: #fff; }
+
+.fs-edit { padding: 12px; margin-bottom: 12px; background: #f3f9ff; border: 3px solid var(--blue); border-radius: var(--radius); }
+.fs-edit h3 { margin: 0 0 8px; }
+.fs-export { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 14px; }
+.fs-export > div { padding: 12px; background: var(--paper); border: 3px solid var(--line); border-radius: var(--radius); }
+.fs-export h3 { margin: 0 0 4px; }
+
+@media (max-width: 560px) {
+  .fs-stats { gap: 6px; }
+  .fs-stats > div { padding: 6px 8px; }
+  .fs-stats strong { font-size: 1rem; }
+  .fs-stats .small { font-size: 0.72rem; }
+  .fs-export { grid-template-columns: minmax(0, 1fr); }
+  .fs-input { width: 90px; }
+  .topbar-user .mode-chip { display: none; }
+}
+.fs-report { margin-top: 12px; }
+
+/* ── 手機版：一位球員一張卡片（桌機仍用表格） ── */
+.fs-cards { display: none; }
+.fs-card { font: inherit; color: var(--ink); text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 10px; background: var(--paper); border: 3px solid var(--line); border-radius: var(--radius); }
+.fs-card + .fs-card { margin-top: 10px; }
+.fs-card-name { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 1.05rem; }
+.fs-card-go { margin-left: auto; font-size: 0.85rem; color: var(--blue); }
+.fs-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.fs-card-cell { display: flex; flex-direction: column; padding: 4px 8px; background: #fff; border: 2px solid #d5d9e4; border-radius: 4px; }
+.fs-card-cell small { font-size: 0.75rem; color: var(--ink-soft); }
+.fs-card-cell.fs-up { background: #eaf7e6; border-color: #9ccc8f; color: #1b5e20; }
+.fs-card-cell.fs-down { background: #fdeceb; border-color: #f0a9a5; color: #b71c1c; }
+
+/* 分頁：桌機顯示完整名稱 */
+.fs-tab-short { display: none; }
+
+/* ── 團體檢測 ── */
+.gt-items { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.gt-item { font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 76px; padding: 8px 4px; background: var(--paper); border: 3px solid var(--line); border-radius: var(--radius); text-align: center; }
+.gt-item > span { font-size: 1.5rem; }
+.gt-item small { font-size: 0.72rem; font-weight: 400; color: var(--ink-soft); }
+.gt-item.active { background: var(--sun); box-shadow: 0 3px 0 var(--line); }
+.gt-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.gt-chip { font: inherit; font-size: 0.9rem; font-weight: 700; color: var(--ink); cursor: pointer; min-height: 40px; padding: 6px 12px; background: #fff; border: 3px solid var(--line); border-radius: 20px; }
+.gt-chip.active { background: #e3f1ff; border-color: var(--blue); color: var(--blue); }
+.gt-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+.gt-pick-btn { font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; min-height: 48px; padding: 8px 10px; text-align: left; background: #fff; border: 3px solid #c3c8d6; border-radius: var(--radius); }
+.gt-pick-btn.active { background: #eaf7e6; border-color: var(--grass-dark); }
+.gt-bottom { position: sticky; bottom: 0; z-index: 5; padding: 10px 0; background: linear-gradient(transparent, var(--paper) 30%); }
+.gt-big { width: 100%; min-height: 56px; font-size: 1.1rem; }
+.gt-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gt-head > div { display: flex; flex-direction: column; }
+.gt-head strong { font-size: 1.2rem; }
+
+.gt-watch { position: sticky; top: 60px; z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; background: #23263a; color: #fff; border: 4px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+.gt-watch.running { background: #1b5e20; }
+.gt-heat { font-weight: 700; color: var(--sun); }
+.gt-clock { font-family: Consolas, 'Courier New', monospace; font-size: clamp(2.6rem, 14vw, 4.5rem); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+.gt-watch-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.gt-watch-actions .btn { min-height: 48px; }
+.gt-tip { margin: 0; text-align: center; }
+.gt-runners { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.gt-runner { font: inherit; color: var(--ink); cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; min-height: 88px; padding: 10px; text-align: left; background: #fff; border: 4px solid var(--line); border-radius: 10px; box-shadow: 0 4px 0 var(--line); touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.gt-runner:not(:disabled):active { transform: translateY(3px); box-shadow: 0 1px 0 var(--line); background: var(--sun); }
+.gt-runner:disabled { cursor: default; }
+.gt-runner.lapping { background: #e3f1ff; }
+.gt-runner.done { background: #eaf7e6; border-color: var(--grass-dark); box-shadow: none; }
+.gt-runner-name { font-weight: 700; font-size: 1.05rem; }
+.gt-runner-lap, .gt-runner-time { display: flex; flex-direction: column; font-size: 0.95rem; }
+.gt-runner-time { font-weight: 700; color: #1b5e20; font-size: 1.1rem; }
+.gt-runner small { font-size: 0.78rem; font-weight: 400; color: var(--ink-soft); }
+.gt-counts { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.gt-count { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #fff; border: 3px solid var(--line); border-radius: 10px; }
+.gt-count.done { background: #eaf7e6; }
+.gt-count-row { display: flex; gap: 6px; }
+.gt-count-input { flex: 1; text-align: center; font-size: 1.4rem !important; font-weight: 700; min-height: 52px !important; }
+.gt-step { min-width: 52px; min-height: 52px; font-size: 1.4rem; }
+.gt-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.gt-results li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 2px solid #eef0f5; }
+.gt-results .gt-runner-name { flex: 1; min-width: 90px; }
+.gt-place { display: inline-grid; place-items: center; width: 28px; height: 28px; font-weight: 700; background: var(--sun); border: 2px solid var(--line); border-radius: 50%; }
+
+/* ── 手機（窄螢幕） ── */
+@media (max-width: 700px) {
+  .fs-table-wrap { display: none; }
+  .fs-cards { display: block; }
+  /* 分頁改成固定在螢幕下方，大拇指好按 */
+  .fs-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; margin: 0; padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); background: #fff; border-top: 3px solid var(--line); box-shadow: 0 -4px 12px rgba(35, 38, 58, 0.15); }
+  .fs-tabs .tab { display: flex; flex-direction: column; align-items: center; gap: 0; min-height: 54px; padding: 4px 2px; font-size: 0.75rem; border: none; border-radius: 8px; background: transparent; box-shadow: none; }
+  .fs-tabs .tab > span:first-child { font-size: 1.3rem; }
+  .fs-tabs .tab.active { background: var(--sun); }
+  .fs-tab-long { display: none; }
+  .fs-tab-short { display: inline; }
+  .fs-has-tabs { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .fs-has-tabs .gt-bottom, .fs-has-tabs .fs-save-bar { bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .gt-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gt-watch { top: 54px; }
+}
+@media (max-width: 560px) {
+  .hide-sm { display: none; }
+  /* 輸入框至少 16px，iPhone 點下去才不會自動放大畫面 */
+  .fs-main input:not([type='checkbox']):not([type='radio']), .fs-main select { font-size: 16px; }
+  .gt-runners { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .gt-pick { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fs-filters .field { flex: 1 1 130px; }
+  .demo-banner { font-size: 0.8rem; padding: 6px 12px; }
+}
+.fs-row-actions { white-space: nowrap; }
+.gt-head .btn { white-space: nowrap; }
+@media (max-width: 560px) {
+  .fs-row-actions { white-space: normal; }
+  .fs-row-actions .btn { display: flex; width: 100%; margin: 3px 0; }
+}

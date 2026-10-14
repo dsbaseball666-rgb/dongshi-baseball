@@ -9,9 +9,10 @@ import { FITNESS_ITEMS, formatFitnessValue, formatRunTime, getFitnessItem, impro
 import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState, PageHeader } from '../components/UI';
 import { LineChart } from '../components/LineChart';
 
-type FitnessApi = ReturnType<typeof useFitness>;
+type FitnessApi = Pick<ReturnType<typeof useFitness>, 'add' | 'update'>;
 
-function FitnessForm({ playerId, editing, onDone, source }: { playerId: string; editing: FitnessTest | null; onDone: () => void; source: FitnessApi }) {
+/** 新增／修改一筆檢測紀錄（體能檢測系統 fitness.html 也共用） */
+export function FitnessForm({ playerId, editing, onDone, source }: { playerId: string; editing: FitnessTest | null; onDone: () => void; source: FitnessApi }) {
   const action = useTask();
   const [item, setItem] = useState<FitnessItemKey>(editing?.item ?? 'pushup');
   const [date, setDate] = useState(editing?.date ?? todayStr());
@@ -98,7 +99,16 @@ export default function FitnessPage() {
 
   return (
     <div className="page">
-      <PageHeader icon="💪" title="體能檢測中心" subtitle={canWrite ? '輸入與檢視全隊體能檢測' : '查看自己的體能紀錄與成長'} />
+      <PageHeader
+        icon="💪"
+        title="體能檢測中心"
+        subtitle={canWrite ? '輸入與檢視全隊體能檢測' : '查看自己的體能紀錄與成長'}
+        actions={
+          <a className="btn btn-sm btn-gold" href="./fitness.html">
+            🏋️ 打開體能檢測系統
+          </a>
+        }
+      />
       {mode === 'cloud' ? (
         <Alert kind="info">☁️ 資料儲存在 Google 試算表。正式檢測資料只能由授權的教練新增、修改或刪除。</Alert>
       ) : (

@@ -7,7 +7,8 @@
 import http from 'node:http';
 import { createGasEnv } from './mock-env.mjs';
 
-const PORT = 8787;
+// 預設 8787；同時開兩個模擬伺服器時可以用 PORT 指定別的連接埠
+const PORT = Number(process.env.PORT) || 8787;
 // 測試專用帳號（只存在這個模擬伺服器裡，不是正式帳號）
 const TEST_ACCOUNTS = [
   { loginId: 'test-coach', role: 'coach', displayName: '測試教練', code: 'TESTCOACH' },

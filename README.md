@@ -22,7 +22,7 @@ npm install
 npm run dev
 ```
 
-看到 `Local: http://localhost:5173/` 之後，用瀏覽器打開這個網址即可。要停止時，在終端機按 `Ctrl + C`。
+看到 `Local: http://localhost:5173/` 之後，用瀏覽器打開這個網址即可。體能檢測系統在 `http://localhost:5173/fitness.html`。要停止時，在終端機按 `Ctrl + C`。
 
 ## 其他指令
 
@@ -56,6 +56,7 @@ src/
   store/DemoStore   第一階段的本機資料儲存
   components/       共用介面元件
   pages/            12 個主要頁面；pages/admin/ 為教練後台
+  fitness-app/      體能檢測系統（獨立網頁 fitness.html：全隊總覽／排行、團體檢測碼表、全隊輸入、個人報告、匯出）
 ```
 
 ## 重要說明
