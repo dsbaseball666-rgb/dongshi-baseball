@@ -6,11 +6,12 @@ const T0 = 1_000_000;
 const at = (sec: number) => T0 + sec * 1000;
 
 describe('團體檢測碼表', () => {
-  it('要按幾下：不記圈 1 下；400 公尺跑道 4 下、300 公尺 5 下、200 公尺 8 下；150 公尺不記圈', () => {
+  it('要按幾下：不記圈 1 下；150 公尺一圈 10 下、400 公尺跑道 4 下、300 公尺 5 下、200 公尺 8 下；150 公尺不記圈', () => {
     expect(tapsNeeded(newSession('2026-10-14', 'run1500', [], 0))).toBe(1);
     expect(tapsNeeded(newSession('2026-10-14', 'run1500', [], 400))).toBe(4);
     expect(tapsNeeded(newSession('2026-10-14', 'run1500', [], 300))).toBe(5);
     expect(tapsNeeded(newSession('2026-10-14', 'run1500', [], 200))).toBe(8);
+    expect(tapsNeeded(newSession('2026-10-14', 'run1500', [], 150))).toBe(10);
     expect(tapsNeeded(newSession('2026-10-14', 'run150', [], 400))).toBe(1);
   });
 

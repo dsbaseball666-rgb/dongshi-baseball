@@ -23,7 +23,7 @@ export interface GroupSession {
 }
 
 export const STORAGE_KEY = 'dongshi-fitness-group-session';
-export const TRACK_LENGTHS = [0, 200, 250, 300, 400];
+export const TRACK_LENGTHS = [0, 150, 200, 250, 300, 400];
 const DISTANCE: Partial<Record<FitnessItemKey, number>> = { run1500: 1500, run150: 150 };
 
 export const isTimed = (item: FitnessItemKey) => getFitnessItem(item).kind === 'time';
