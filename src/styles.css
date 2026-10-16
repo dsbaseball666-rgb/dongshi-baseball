@@ -668,3 +668,16 @@ td.strong { font-weight: 700; }
 .line-image { flex: 1 1 100%; width: 100%; margin-top: 8px; padding: 10px; background: #f2f4f8; border: 2px dashed #c3c8d6; border-radius: var(--radius); }
 .line-image img { display: block; max-width: 100%; max-height: 70vh; margin: 0 auto 8px; border: 2px solid var(--line); background: #fff; }
 .line-share { margin-top: 10px; padding-top: 10px; border-top: 2px dashed #d5d9e4; }
+
+/* 教練練球安排（5.8） */
+.plan-week { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.plan-day { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: rgba(255, 255, 255, 0.85); border: 3px solid var(--line); border-radius: var(--radius); }
+.plan-day.is-today { outline: 4px solid var(--red); outline-offset: 1px; }
+.plan-session { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; background: #fff; border: 2px solid #c3c8d6; border-left: 6px solid var(--grass); border-radius: var(--radius); }
+.plan-session.mine { border-left-color: var(--red); background: #fff8e1; }
+.plan-actions { display: flex; gap: 6px; margin-top: 4px; }
+.time-pair { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.time-pair select { width: auto; }
+.group-row { margin-top: 8px; align-items: center; }
+.player-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.chip-no { margin-right: 3px; opacity: 0.7; font-size: 0.8em; }

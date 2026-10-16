@@ -61,6 +61,8 @@ const SCHEMA = {
   Transactions: ['id', 'year', 'date', 'type', 'itemId', 'title', 'amount', 'handler', 'note', 'createdById', 'createdBy', 'createdAt', 'updatedAt'],
   Tournaments: ['id', 'name', 'kind', 'startDate', 'endDate', 'location', 'organizer', 'signupDeadline', 'fee', 'result', 'playerIds', 'note', 'createdById', 'createdAt', 'updatedAt'],
   Games: ['id', 'tournamentId', 'date', 'time', 'opponent', 'location', 'side', 'ourScore', 'oppScore', 'note', 'createdById', 'createdAt', 'updatedAt'],
+  // 5.8：教練練球安排（一天多個時段、指定參加人員；playerIds 空白＝全隊）
+  TrainingPlans: ['id', 'date', 'startTime', 'endTime', 'slot', 'items', 'playerIds', 'location', 'note', 'createdById', 'updatedBy', 'createdAt', 'updatedAt'],
 };
 
 // 遊戲規則（與前端示範模式相同）
@@ -283,6 +285,8 @@ const ROUTES = {
   deleteTournament: { roles: COACH, write: true, fn: deleteTournament_ },
   saveGame: { roles: COACH, write: true, fn: saveGame_ },
   deleteGame: { roles: COACH, write: true, fn: deleteGame_ },
+  listPlan: { roles: ALL_ROLES, fn: listPlan_ },
+  savePlanWeek: { roles: COACH, write: true, fn: savePlanWeek_ },
 };
 
 function doGet() {
@@ -1727,6 +1731,11 @@ function adminDeletePlayer_(ctx) {
   readAll_('Tournaments')
     .filter((t) => t.playerIds.split(',').indexOf(id) >= 0)
     .forEach((t) => updateRow_('Tournaments', t._row, Object.assign({}, t, { playerIds: without(t.playerIds) })));
+  // 練球安排：只有他一個人的時段刪除；多人的時段只移除他（空白代表全隊，不能變成空白）
+  del('TrainingPlans', (x) => x.playerIds === id);
+  readAll_('TrainingPlans')
+    .filter((x) => x.playerIds.split(',').indexOf(id) >= 0)
+    .forEach((x) => updateRow_('TrainingPlans', x._row, Object.assign({}, x, { playerIds: without(x.playerIds) })));
   del('Players', (x) => x.id === id);
   audit_(a, '刪除球員', id, p.name + '（' + Object.keys(removed).map((k) => k + ' ' + removed[k]).join('、') + '）');
   return { deleted: id, removed: removed };
@@ -3156,6 +3165,70 @@ function deleteGame_(ctx) {
   return { deleted: r.id };
 }
 
+/* ── 教練練球安排：一天可以有好幾個時段，每個時段指定參加人員 ── */
+
+const PLAN_ITEMS = ['熱身', '體能', '傳接球', '守備', '打擊', '投球', '捕手訓練', '跑壘', '戰術', '重量訓練', '比賽', '自主練習', '緩和伸展'];
+
+function parsePlan_(r) {
+  return {
+    id: r.id, date: r.date, startTime: r.startTime, endTime: r.endTime, slot: r.slot, items: r.items ? r.items.split(',') : [],
+    playerIds: r.playerIds ? r.playerIds.split(',') : [], location: r.location, note: r.note, updatedBy: r.updatedBy, updatedAt: r.updatedAt,
+  };
+}
+
+/** 依角色看得到的練球安排：教練、學務處看全部；球員看全隊與有自己的；家長、老師看全隊與有子女／學生的 */
+function listPlan_(ctx) {
+  const a = ctx.actor;
+  const today = today_();
+  const r = rangeArgs_(ctx.payload, addDaysStr_(today, -14), addDaysStr_(today, 21), 120);
+  let list = readAll_('TrainingPlans').filter((x) => x.date >= r.from && x.date <= r.to).map(parsePlan_);
+  if (!seesAllStudents_(a)) {
+    const mine = a.role === 'player' ? [a.playerId] : linkedIds_(a);
+    list = list.filter((x) => x.playerIds.length === 0 || x.playerIds.some((id) => mine.indexOf(id) >= 0));
+  }
+  list.sort((x, y) => (x.date + x.startTime < y.date + y.startTime ? -1 : 1));
+  const used = {};
+  list.forEach((x) => x.playerIds.forEach((id) => (used[id] = true)));
+  const names = {};
+  readAll_('Players').forEach((p) => {
+    if (used[p.id]) names[p.id] = p.name;
+  });
+  return { sessions: list, names: names, today: today };
+}
+
+/** 一次儲存一整週（星期一～日）：這一週原本的安排全部換成送來的內容 */
+function savePlanWeek_(ctx) {
+  const a = ctx.actor;
+  const weekStart = dateStr_(ctx.payload.weekStart, '這一週的星期一');
+  const weekEnd = addDaysStr_(weekStart, 6);
+  const list = Array.isArray(ctx.payload.sessions) ? ctx.payload.sessions : [];
+  if (list.length > 100) throw apiError_('INVALID', '一週最多 100 個時段。');
+  const players = readAll_('Players');
+  const now = nowIso_();
+  const rows = list.map((s) => {
+    if (!s || typeof s !== 'object') throw apiError_('INVALID', '練球安排的格式不正確。');
+    const date = dateStr_(s.date, '日期');
+    if (date < weekStart || date > weekEnd) throw apiError_('INVALID', date + ' 不在這一週。');
+    const startTime = timeStr_(s.startTime, '開始時間');
+    const endTime = timeStr_(s.endTime, '結束時間');
+    if (!startTime || !endTime) throw apiError_('INVALID', date + ' 有時段沒有選開始或結束時間。');
+    if (endTime <= startTime) throw apiError_('INVALID', date + ' ' + startTime + ' 的結束時間要晚於開始時間。');
+    const items = (Array.isArray(s.items) ? s.items.map(String) : []).filter((v, i, arr) => arr.indexOf(v) === i);
+    if (items.some((v) => PLAN_ITEMS.indexOf(v) < 0)) throw apiError_('INVALID', '訓練內容不正確。');
+    const ids = (Array.isArray(s.playerIds) ? s.playerIds.map(String) : []).filter((v, i, arr) => v && arr.indexOf(v) === i);
+    if (ids.some((id) => !players.some((p) => p.id === id))) throw apiError_('INVALID', '找不到指定的球員。');
+    return {
+      id: newId_('TP'), date: date, startTime: startTime, endTime: endTime, slot: str_(s.slot, '時段名稱', { max: 10 }), items: items.join(','),
+      playerIds: ids.join(','), location: str_(s.location, '地點', { max: 40 }), note: str_(s.note, '備註', { max: 200 }),
+      createdById: a.id, updatedBy: a.displayName, createdAt: now, updatedAt: now,
+    };
+  });
+  const old = readAll_('TrainingPlans').filter((x) => x.date >= weekStart && x.date <= weekEnd).map((x) => x._row).sort((x, y) => y - x);
+  old.forEach((row) => deleteRow_('TrainingPlans', row));
+  appendRows_('TrainingPlans', rows);
+  return { saved: rows.length, removed: old.length };
+}
+
 // ───────────────────────── 試算表存取 ─────────────────────────
 
 /** 一次寫入多列（大量匯入時比逐列 appendRow 快很多） */
@@ -3171,7 +3244,7 @@ function appendRows_(name, objs) {
  * 球隊管理（練球、出缺席、通訊錄、預算、賽事）的資料放在「另一份」試算表，避免原本的資料庫越來越大。
  * 帳號與球員名單仍然在原本的試算表。
  */
-const TEAM_SHEETS = ['PracticeDays', 'Attendance', 'PlayerProfiles', 'BudgetItems', 'Transactions', 'Tournaments', 'Games'];
+const TEAM_SHEETS = ['PracticeDays', 'Attendance', 'PlayerProfiles', 'BudgetItems', 'Transactions', 'Tournaments', 'Games', 'TrainingPlans'];
 const TEAM_DB_NAME = '東勢國中棒球隊｜球隊管理 資料庫';
 const TEAM_DB_PROP = 'teamSpreadsheetId';
 let TEAM_SS_ = null;
@@ -4087,6 +4160,26 @@ function runSelfTests() {
       results.push([!!myT && myT.playerIds.length === 2 && !!lt.data.names['TEST-PA'] && lt.data.games.some((g) => gm.ok && g.id === gm.data.game.id && g.ourScore === 5), '球員看得到賽事、參賽名單與比分', lt.ok ? '' : lt.error]);
       const dt = call('deleteTournament', { id: tnId }, tCoach, Utilities.getUuid());
       results.push([dt.ok && dt.data.games === 1 && !readAll_('Games').some((g) => g.tournamentId === tnId), '刪除賽事會連同它的比賽一起刪除', dt.ok ? '' : dt.error]);
+
+      // 練球安排（用 2099 年的一週，不會動到真正的安排）
+      const wk = '2099-01-05';
+      const plan = (sessions, t) => call('savePlanWeek', { weekStart: wk, sessions: sessions }, t || tCoach, Utilities.getUuid());
+      const sTeam = { date: '2099-01-05', startTime: '16:00', endTime: '18:00', slot: '下午', items: ['守備', '打擊'], playerIds: [], location: '校內球場' };
+      const sB = { date: '2099-01-06', startTime: '06:30', endTime: '07:30', slot: '晨練', items: ['投球'], playerIds: ['TEST-PB'] };
+      const pl1 = plan([sTeam, sB]);
+      results.push([pl1.ok && pl1.data.saved === 2, '教練可以一次安排一週的練球時段與參加人員', pl1.ok ? '' : pl1.error]);
+      const seeA = call('listPlan', { from: wk, to: '2099-01-11' }, tPA);
+      results.push([seeA.ok && seeA.data.sessions.length === 1 && seeA.data.sessions[0].playerIds.length === 0, '球員只看得到全隊與有自己的時段', seeA.ok ? String(seeA.data.sessions.length) : seeA.error]);
+      const seeC = call('listPlan', { from: wk, to: '2099-01-11' }, tCoach);
+      results.push([seeC.ok && seeC.data.sessions.length === 2 && seeC.data.names['TEST-PB'], '教練看得到全部時段與參加人員姓名', seeC.ok ? '' : seeC.error]);
+      expectFail('球員不能安排練球', plan([sTeam], tPA), 'FORBIDDEN');
+      expectFail('結束時間要晚於開始時間', plan([Object.assign({}, sTeam, { endTime: '15:00' })]), 'INVALID');
+      expectFail('不在這一週的日期會被拒絕', plan([Object.assign({}, sTeam, { date: '2099-01-12' })]), 'INVALID');
+      expectFail('訓練內容不正確會被拒絕', plan([Object.assign({}, sTeam, { items: ['打電動'] })]), 'INVALID');
+      expectFail('不存在的球員不能排進時段', plan([Object.assign({}, sTeam, { playerIds: ['NOPE-1'] })]), 'INVALID');
+      const pl2 = plan([sB]);
+      const after = readAll_('TrainingPlans').filter((x) => x.date >= wk && x.date <= '2099-01-11');
+      results.push([pl2.ok && pl2.data.removed === 2 && after.length === 1, '重新儲存同一週會整週換掉，不會重複', pl2.ok ? JSON.stringify(pl2.data) : pl2.error]);
     }
 
     // 6. 停用帳號立即失效
@@ -4151,7 +4244,7 @@ function cleanupTestData_(created) {
     'DailyNotes', 'FitnessTests', 'Goals', 'Rules', 'KnowledgeArticles', 'Announcements',
     'TaskCompletions', 'Tasks', 'PlayerMonsters', 'MonsterProgress', 'Monsters', 'Wallets', 'RewardLogs', 'QuizPasses',
     'ExamScores', 'Battles', 'Invites', 'Messages', 'SchoolRecords', 'Events',
-    'PracticeDays', 'Attendance', 'PlayerProfiles', 'Transactions', 'BudgetItems', 'Games', 'Tournaments', 'AuditLogs', 'Users', 'Players',
+    'PracticeDays', 'Attendance', 'PlayerProfiles', 'Transactions', 'BudgetItems', 'Games', 'Tournaments', 'TrainingPlans', 'AuditLogs', 'Users', 'Players',
   ].forEach((name) => {
     const rows = readAll_(name).filter(isTest).map((r) => r._row).sort((a, b) => b - a);
     rows.forEach((row) => deleteRow_(name, row));

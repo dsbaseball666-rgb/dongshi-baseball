@@ -1,7 +1,7 @@
 import type { AttendanceStatus, PracticeDay, Player } from '../../types';
 import { addDays, formatDateTime, nowIso } from '../../lib/date';
 import { renderTableImage, type ImageCell } from '../../lib/noticeImage';
-import { ATTENDANCE_STATUSES, PRACTICE_ICONS, PRESENT_STATUSES, shortDate } from '../../sources/team';
+import { ATTENDANCE_STATUSES, PRACTICE_ICONS, participantText, PRESENT_STATUSES, shortDate, type PlanInput } from '../../sources/team';
 
 const TYPE_COLORS: Record<string, { color: string; bg: string; row?: string }> = {
   練球: { color: '#1b5e20', bg: '#d7f0d2' },
@@ -90,6 +90,38 @@ export function attendanceImage(date: string, players: Player[], records: Record
     rowBg: (i) => {
       const s = records[players[i].id]?.status;
       return s && s !== '出席' ? '#fff8e1' : undefined;
+    },
+    footer: footer(),
+  });
+}
+
+/** 一週練球安排圖片（每個時段一列） */
+export function planImage(monday: string, sessions: PlanInput[], names: Record<string, string>): HTMLCanvasElement {
+  const list = sessions.slice().sort((a, b) => (a.date + a.startTime < b.date + b.startTime ? -1 : 1));
+  const days = new Set(list.map((s) => s.date)).size;
+  return renderTableImage({
+    title: '🗓️ 一週練球安排',
+    subtitle: `${shortDate(monday)} ～ ${shortDate(addDays(monday, 6))}`,
+    summary: `共 ${days} 天、${list.length} 個時段`,
+    columns: [
+      { label: '日期', width: 140 },
+      { label: '時段', width: 170 },
+      { label: '訓練內容', width: 230 },
+      { label: '參加人員', width: 260 },
+      { label: '地點／備註', width: 200 },
+    ],
+    rows: list.map((s, i): ImageCell[] => [
+      // 同一天的第二個時段起，日期留白（空字串會顯示「—」，所以用全形空白）
+      { text: i > 0 && list[i - 1].date === s.date ? '　' : shortDate(s.date), bold: true },
+      { text: `${s.startTime}–${s.endTime}${s.slot ? '\n' + s.slot : ''}`, bold: true },
+      { text: s.items.join('、') },
+      { text: participantText(s.playerIds, names, 12), color: s.playerIds.length === 0 ? '#b71c1c' : undefined, bold: s.playerIds.length === 0 },
+      { text: [s.location, s.note && `※ ${s.note}`].filter(Boolean).join('\n') },
+    ]),
+    // 同一天的時段用同一個底色，方便分辨
+    rowBg: (i) => {
+      const order = Array.from(new Set(list.map((s) => s.date)));
+      return order.indexOf(list[i].date) % 2 ? '#f3f6fb' : '#ffffff';
     },
     footer: footer(),
   });

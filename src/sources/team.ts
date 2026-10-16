@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { AttendanceRecord, AttendanceStatus, BudgetItem, Game, Player, PlayerProfile, PracticeDay, PracticeType, Tournament, Transaction } from '../types';
+import type { AttendanceRecord, AttendanceStatus, BudgetItem, Game, Player, PlanSession, PlayerProfile, PracticeDay, PracticeType, Tournament, Transaction } from '../types';
 import { useStore } from '../store/DemoStore';
 import { useCloudQuery } from './hooks';
 import { addDays } from '../lib/date';
@@ -168,4 +168,49 @@ export function useTournaments() {
   const saveGame = useCallback((input: GameInput) => after(api('saveGame', input, '儲存比賽')), [api, after]);
   const deleteGame = useCallback((id: string) => after(api('deleteGame', { id }, '刪除比賽')), [api, after]);
   return { ...q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, saveTournament, deleteTournament, saveGame, deleteGame };
+}
+
+/* ───────── 教練練球安排 ───────── */
+
+export const PLAN_ITEMS = ['熱身', '體能', '傳接球', '守備', '打擊', '投球', '捕手訓練', '跑壘', '戰術', '重量訓練', '比賽', '自主練習', '緩和伸展'];
+/** 常用時段（點選後自動帶入時間；「自訂」可以自己選時間） */
+export const PLAN_SLOTS = [
+  { slot: '晨練', startTime: '06:30', endTime: '07:30' },
+  { slot: '午休', startTime: '12:20', endTime: '13:10' },
+  { slot: '下午', startTime: '16:00', endTime: '18:00' },
+  { slot: '晚間', startTime: '18:30', endTime: '20:00' },
+];
+export const PLAN_LOCATIONS = ['校內球場', '室內打擊場', '重訓室', '體育館', '外地'];
+/** 06:00～21:30，每 15 分鐘一格 */
+export const TIME_OPTIONS = Array.from({ length: 63 }, (_, i) => {
+  const m = 6 * 60 + i * 15;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+});
+
+export type PlanInput = Pick<PlanSession, 'date' | 'startTime' | 'endTime' | 'slot' | 'items' | 'playerIds' | 'location' | 'note'>;
+
+interface PlanData {
+  sessions: PlanSession[];
+  names: Record<string, string>;
+  today: string;
+}
+
+export function usePlan(from: string, to: string) {
+  const { mode, api } = useStore();
+  const q = useCloudQuery<PlanData>(mode === 'cloud', `plan-${from}-${to}`, () => api<PlanData>('listPlan', { from, to }, '讀取練球安排'), { sessions: [], names: {}, today: '' });
+  const saveWeek = useCallback(
+    async (weekStart: string, sessions: PlanInput[]) => {
+      await api('savePlanWeek', { weekStart, sessions }, '儲存練球安排');
+      q.reload();
+    },
+    [api, q.reload],
+  );
+  return { ...q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, saveWeek };
+}
+
+/** 「全隊」或「王小明、李小華…等 8 人」 */
+export function participantText(ids: string[], names: Record<string, string>, max = 6): string {
+  if (ids.length === 0) return '全隊';
+  const list = ids.map((id) => names[id] ?? '（已刪除）');
+  return list.length > max ? `${list.slice(0, max).join('、')}…等 ${list.length} 人` : `${list.join('、')}（${list.length} 人）`;
 }

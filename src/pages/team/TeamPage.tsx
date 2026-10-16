@@ -3,22 +3,24 @@ import { useStore } from '../../store/DemoStore';
 import { PageHeader } from '../../components/UI';
 import { useCloudQuery } from '../../sources/hooks';
 import { PracticeTab } from './PracticeTab';
+import { PlanTab } from './PlanTab';
 import { AttendanceTab } from './AttendanceTab';
 import { ProfilesTab } from './ProfilesTab';
 import { BudgetTab } from './BudgetTab';
 import { TournamentsTab } from './TournamentsTab';
 
-type Tab = 'practice' | 'attendance' | 'profiles' | 'budget' | 'games';
+type Tab = 'practice' | 'plan' | 'attendance' | 'profiles' | 'budget' | 'games';
 
 const TABS: { id: Tab; label: string; coachOnly: boolean }[] = [
   { id: 'practice', label: '📅 一週練球', coachOnly: false },
+  { id: 'plan', label: '🗓️ 練球安排', coachOnly: false },
   { id: 'attendance', label: '✅ 出缺席', coachOnly: true },
   { id: 'profiles', label: '👥 球員通訊錄', coachOnly: true },
   { id: 'budget', label: '💰 預算管理', coachOnly: true },
   { id: 'games', label: '🏆 賽事管理', coachOnly: false },
 ];
 
-/** 球隊管理：教練看到全部 5 個分頁；球員、家長、老師只看得到練球通知與賽事 */
+/** 球隊管理：教練看到全部分頁；球員、家長、老師只看得到練球通知、練球安排與賽事 */
 export default function TeamPage() {
   const { user, api } = useStore();
   const coach = user?.role === 'coach';
@@ -49,6 +51,7 @@ export default function TeamPage() {
         ))}
       </div>
       {tab === 'practice' && <PracticeTab coach={coach} />}
+      {tab === 'plan' && <PlanTab coach={coach} myIds={user?.role === 'player' && user.playerId ? [user.playerId] : user?.childPlayerIds ?? []} />}
       {tab === 'attendance' && coach && <AttendanceTab />}
       {tab === 'profiles' && coach && <ProfilesTab />}
       {tab === 'budget' && coach && <BudgetTab />}

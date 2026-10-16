@@ -596,3 +596,18 @@ export interface Game {
   oppScore: number | null;
   note: string;
 }
+
+/** 5.8 教練練球安排：一個時段（playerIds 空白＝全隊） */
+export interface PlanSession {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  slot: string;
+  items: string[];
+  playerIds: string[];
+  location: string;
+  note: string;
+  updatedBy: string;
+  updatedAt: string;
+}
