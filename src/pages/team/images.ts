@@ -147,9 +147,8 @@ export async function jerseyImage(t: Tournament, players: Player[], names: Recor
     summary: [dates, t.location && `📍${t.location}`, `共 ${ids.length} 人`].filter(Boolean).join('｜'),
     columns: [
       { label: '號碼', width: 110 },
-      ...(withPhotos ? [{ label: '照片', width: 100 }] : []),
+      ...(withPhotos ? [{ label: '照片', width: 150 }] : []),
       { label: '姓名', width: 220 },
-      { label: '年級', width: 130 },
       { label: '守備位置', width: 260 },
     ],
     rows: ids.map((id): ImageCell[] => {
@@ -157,9 +156,8 @@ export async function jerseyImage(t: Tournament, players: Player[], names: Recor
       const no = t.jerseys[id];
       return [
         no ? { text: no, bold: true, color: '#ffffff', bg: '#23263a' } : { text: '未編號', color: '#9aa0b4' },
-        ...(withPhotos ? [imgs[id] ? { text: '', image: imgs[id] } : { text: '' }] : []),
+        ...(withPhotos ? [imgs[id] ? { text: '', image: imgs[id], imageW: 120, imageH: 150 } : { text: '' }] : []),
         { text: names[id] ?? p?.name ?? '', bold: true },
-        { text: p?.grade ?? '' },
         { text: p?.position ?? '' },
       ];
     }),

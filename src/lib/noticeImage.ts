@@ -4,6 +4,9 @@ export interface ImageCell {
   text: string;
   /** 放一張照片（例如大頭照），寬 72、高 90，照片會裁切填滿 */
   image?: CanvasImageSource & { width: number; height: number };
+  /** 照片的大小（預設寬 72、高 90） */
+  imageW?: number;
+  imageH?: number;
   color?: string;
   bg?: string;
   bold?: boolean;
@@ -62,7 +65,7 @@ export function renderTableImage(spec: TableImageSpec): HTMLCanvasElement {
     measure.font = font(FONT_SIZE, cell.bold);
     return wrap(measure, cell.text || '—', spec.columns[j].width - CELL_PAD * 2);
   }));
-  const rowH = wrapped.map((row, i) => Math.max(...row.map((lines) => lines.length * LINE_H), spec.rows[i].some((c) => c.image) ? PHOTO_H + 4 : 0) + CELL_PAD * 2 - 8);
+  const rowH = wrapped.map((row, i) => Math.max(...row.map((lines) => lines.length * LINE_H), ...spec.rows[i].map((c) => (c.image ? (c.imageH ?? PHOTO_H) + 4 : 0))) + CELL_PAD * 2 - 8);
   const headH = 104 + (spec.subtitle ? 34 : 0);
   const summaryH = spec.summary ? 52 : 0;
   const theadH = 48;
@@ -126,7 +129,7 @@ export function renderTableImage(spec: TableImageSpec): HTMLCanvasElement {
     row.forEach((cell, j) => {
       const lines = wrapped[i][j];
       if (cell.image) {
-        drawCover(ctx, cell.image, x + CELL_PAD, y + CELL_PAD - 4, PHOTO_W, PHOTO_H);
+        drawCover(ctx, cell.image, x + CELL_PAD, y + CELL_PAD - 4, cell.imageW ?? PHOTO_W, cell.imageH ?? PHOTO_H);
         x += spec.columns[j].width;
         return;
       }
