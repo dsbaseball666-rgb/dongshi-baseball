@@ -2,16 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import type { AttendanceStatus, Player } from '../../types';
 import { useTask } from '../../store/DemoStore';
 import { usePlayers } from '../../sources/hooks';
-import { ATTENDANCE_STATUSES, ATTENDANCE_TONE, PRACTICE_ICONS, PRESENT_STATUSES, shortDate, useAttendance, usePractice } from '../../sources/team';
+import { byNumber, ATTENDANCE_STATUSES, ATTENDANCE_TONE, PRACTICE_ICONS, PRESENT_STATUSES, shortDate, useAttendance, usePractice } from '../../sources/team';
 import { addDays, todayStr } from '../../lib/date';
 import { downloadCsv } from '../../lib/csv';
-import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState } from '../../components/UI';
+import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingCard, LoadingState } from '../../components/UI';
 import { LineImageButton } from '../../components/LineImage';
 import { attendanceImage } from './images';
 
 type Draft = Record<string, { status: AttendanceStatus | ''; reason: string }>;
 
-const byNumber = (a: Player, b: Player) => (Number(a.number) || 999) - (Number(b.number) || 999) || a.name.localeCompare(b.name, 'zh-TW');
 
 /* ───────── 點名 ───────── */
 function RollCall({ players, onSaved }: { players: Player[]; onSaved: () => void }) {
@@ -258,9 +257,7 @@ export function AttendanceTab() {
   const active = useMemo(() => players.filter((p) => p.active).sort(byNumber), [players]);
   if (loading)
     return (
-      <Card>
-        <LoadingState text="讀取球員名單…" />
-      </Card>
+      <LoadingCard text="讀取球員名單…" />
     );
   if (error) return <Alert kind="error">{error}</Alert>;
   if (active.length === 0)

@@ -11,3 +11,5 @@ dist
 *.csv
 *.ods
 匯入資料/
+# clasp 設定（指令碼 ID）只放在這台電腦
+apps-script/.clasp.json

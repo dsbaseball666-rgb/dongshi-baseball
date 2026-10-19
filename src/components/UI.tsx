@@ -79,6 +79,15 @@ export function LoadingState({ text = '載入中…' }: { text?: string }) {
   );
 }
 
+/** 整張卡片只有「載入中」 */
+export function LoadingCard({ text }: { text?: string }) {
+  return (
+    <Card>
+      <LoadingState text={text} />
+    </Card>
+  );
+}
+
 export function Alert({ kind, children }: { kind: 'error' | 'success' | 'info' | 'warn'; children: ReactNode }) {
   const icon = { error: '⚠️', success: '✅', info: 'ℹ️', warn: '🔔' }[kind];
   return (

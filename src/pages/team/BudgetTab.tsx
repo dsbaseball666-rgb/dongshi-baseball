@@ -4,7 +4,7 @@ import { useTask } from '../../store/DemoStore';
 import { money, schoolYearOf, shortDate, useBudget, type BudgetItemInput, type TransactionInput } from '../../sources/team';
 import { todayStr } from '../../lib/date';
 import { downloadCsv } from '../../lib/csv';
-import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState, ProgressBar } from '../../components/UI';
+import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingCard, ProgressBar } from '../../components/UI';
 
 type Budget = ReturnType<typeof useBudget>;
 
@@ -215,9 +215,7 @@ export function BudgetTab() {
       </Card>
       {budget.error && <Alert kind="error">{budget.error}</Alert>}
       {budget.loading ? (
-        <Card>
-          <LoadingState text="讀取預算…" />
-        </Card>
+        <LoadingCard text="讀取預算…" />
       ) : (
         <>
           <Card

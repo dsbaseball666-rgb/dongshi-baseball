@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import type { Player, PlayerProfile } from '../../types';
 import { useTask } from '../../store/DemoStore';
-import { useProfiles, type ProfileInput } from '../../sources/team';
+import { byNumber, useProfiles, type ProfileInput } from '../../sources/team';
 import { downloadCsv } from '../../lib/csv';
 import { formatDateTime, todayStr } from '../../lib/date';
-import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState } from '../../components/UI';
+import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingCard } from '../../components/UI';
 
 const EMPTY: Omit<ProfileInput, 'playerId'> = {
   birthday: '', className: '', batsThrows: '', height: '', weight: '', phone: '', address: '',
@@ -13,7 +13,6 @@ const EMPTY: Omit<ProfileInput, 'playerId'> = {
 const RELATIONS = ['母', '父', '隔代', '其他'];
 const BATS_THROWS = ['右投右打', '右投左打', '右投兩打', '左投左打', '左投右打', '左投兩打'];
 
-const byNumber = (a: Player, b: Player) => (Number(a.number) || 999) - (Number(b.number) || 999) || a.name.localeCompare(b.name, 'zh-TW');
 
 function Phone({ value }: { value: string }) {
   if (!value) return <span className="muted">—</span>;
@@ -149,9 +148,7 @@ export function ProfilesTab() {
 
   if (data.loading)
     return (
-      <Card>
-        <LoadingState text="讀取通訊錄…" />
-      </Card>
+      <LoadingCard text="讀取通訊錄…" />
     );
   return (
     <>

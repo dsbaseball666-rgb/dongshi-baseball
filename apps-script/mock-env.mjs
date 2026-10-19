@@ -52,7 +52,7 @@ function makeSheet(name) {
   return sheet;
 }
 
-/** 建立一個全新的模擬環境並載入 Code.gs；回傳 Code.gs 的全域函式與記錄 */
+/** 建立一個全新的模擬環境並載入 Code.gs 與 Tests.gs（和 Apps Script 一樣共用全域）；回傳全域函式與記錄 */
 function makeSpreadsheet(id, name) {
   const sheets = [makeSheet('工作表1')];
   let ssName = name;
@@ -146,6 +146,6 @@ export function createGasEnv() {
     DriveApp: {},
   };
   vm.createContext(context);
-  vm.runInContext(readFileSync(new URL('./Code.gs', import.meta.url), 'utf8'), context, { filename: 'Code.gs' });
+  for (const file of ['Code.gs', 'Tests.gs']) vm.runInContext(readFileSync(new URL('./' + file, import.meta.url), 'utf8'), context, { filename: file });
   return { gas: context, sheets, spreadsheet, logs, addExternal, created };
 }

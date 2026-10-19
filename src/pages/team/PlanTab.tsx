@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react';
 import type { PlanSession, Player } from '../../types';
 import { useTask } from '../../store/DemoStore';
 import { usePlayers } from '../../sources/hooks';
-import { mondayOf, participantText, PLAN_ITEMS, PLAN_LOCATIONS, PLAN_SLOTS, shortDate, TIME_OPTIONS, usePlan, type PlanInput } from '../../sources/team';
+import { byNumber, mondayOf, participantText, PLAN_ITEMS, PLAN_LOCATIONS, PLAN_SLOTS, shortDate, TIME_OPTIONS, usePlan, type PlanInput } from '../../sources/team';
 import { addDays, todayStr } from '../../lib/date';
-import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState } from '../../components/UI';
+import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingCard } from '../../components/UI';
 import { LineImageButton } from '../../components/LineImage';
+import { WeekNav } from './WeekNav';
 import { planImage } from './images';
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
@@ -22,7 +23,6 @@ const GROUPS: { label: string; test: (p: Player) => boolean }[] = [
 ];
 
 const byTime = (a: PlanInput, b: PlanInput) => (a.date + a.startTime < b.date + b.startTime ? -1 : 1);
-const byNumber = (a: Player, b: Player) => (Number(a.number) || 999) - (Number(b.number) || 999) || a.name.localeCompare(b.name, 'zh-TW');
 
 /** 同一天、時間重疊、而且有相同球員的時段 */
 function conflictsOf(s: PlanInput, all: PlanInput[]): PlanInput[] {
@@ -302,22 +302,7 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
   return (
     <>
       <Card>
-        <div className="row-between">
-          <div className="tabs">
-            <button type="button" className="btn btn-sm" onClick={() => moveTo(addDays(monday, -7))}>
-              ← 上一週
-            </button>
-            <button type="button" className="btn btn-sm" onClick={() => moveTo(mondayOf(today))} disabled={monday === mondayOf(today)}>
-              本週
-            </button>
-            <button type="button" className="btn btn-sm" onClick={() => moveTo(addDays(monday, 7))}>
-              下一週 →
-            </button>
-          </div>
-          <strong>
-            {shortDate(monday)}～{shortDate(addDays(monday, 6))}
-          </strong>
-        </div>
+        <WeekNav monday={monday} onMove={moveTo} />
         {coach && !editing && (
           <div className="form-actions">
             <button type="button" className="btn btn-primary" onClick={startEdit} disabled={plan.loading}>
@@ -360,9 +345,7 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
 
       {plan.error && <Alert kind="error">{plan.error}</Alert>}
       {plan.loading ? (
-        <Card>
-          <LoadingState text="讀取練球安排…" />
-        </Card>
+        <LoadingCard text="讀取練球安排…" />
       ) : !editing && week.length === 0 ? (
         <Card>
           <EmptyState icon="🗓️" title="這一週還沒有練球安排" hint={coach ? '按「安排這一週」開始，可以一次選好幾天，也可以複製上週。' : '教練還沒有排這一週。'} />

@@ -3,8 +3,9 @@ import type { PracticeDay } from '../../types';
 import { useTask } from '../../store/DemoStore';
 import { addDays, todayStr } from '../../lib/date';
 import { mondayOf, practiceNoticeText, PRACTICE_ICONS, PRACTICE_TYPES, shortDate, usePractice, type PracticeInput } from '../../sources/team';
-import { ActionFeedback, Alert, Badge, Card, EmptyState, LoadingState } from '../../components/UI';
+import { ActionFeedback, Alert, Badge, Card, EmptyState, LoadingCard } from '../../components/UI';
 import { LineImageButton } from '../../components/LineImage';
+import { WeekNav } from './WeekNav';
 import { practiceImage } from './images';
 
 const TYPE_TONE: Record<string, 'green' | 'gray' | 'yellow' | 'blue'> = { 練球: 'green', 休息: 'gray', 比賽: 'yellow', 其他: 'blue' };
@@ -128,22 +129,7 @@ export function PracticeTab({ coach }: { coach: boolean }) {
   return (
     <>
       <Card>
-        <div className="row-between">
-          <div className="tabs">
-            <button type="button" className="btn btn-sm" onClick={() => moveTo(addDays(monday, -7))}>
-              ← 上一週
-            </button>
-            <button type="button" className="btn btn-sm" onClick={() => moveTo(mondayOf(today))} disabled={monday === mondayOf(today)}>
-              本週
-            </button>
-            <button type="button" className="btn btn-sm" onClick={() => moveTo(addDays(monday, 7))}>
-              下一週 →
-            </button>
-          </div>
-          <strong>
-            {shortDate(monday)}～{shortDate(addDays(monday, 6))}
-          </strong>
-        </div>
+        <WeekNav monday={monday} onMove={moveTo} />
         {!practice.loading && week.length > 0 && (
           <p className="muted small">
             這週練球 {practiceDays} 天、休息 {restDays} 天
@@ -169,9 +155,7 @@ export function PracticeTab({ coach }: { coach: boolean }) {
       </Card>
       {practice.error && <Alert kind="error">{practice.error}</Alert>}
       {practice.loading ? (
-        <Card>
-          <LoadingState text="讀取練球通知…" />
-        </Card>
+        <LoadingCard text="讀取練球通知…" />
       ) : editing ? (
         <WeekEditor monday={monday} days={practice.days} save={practice.save} onDone={() => setEditing(false)} />
       ) : week.length === 0 ? (

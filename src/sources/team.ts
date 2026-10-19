@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { AttendanceRecord, AttendanceStatus, BudgetItem, Game, Player, PlanSession, PlayerProfile, PracticeDay, PracticeType, Tournament, Transaction } from '../types';
 import { useStore } from '../store/DemoStore';
 import { useCloudQuery } from './hooks';
@@ -22,6 +22,9 @@ export type BudgetItemInput = Omit<BudgetItem, 'id' | 'amount'> & { id?: string;
 export type TransactionInput = Pick<Transaction, 'year' | 'date' | 'type' | 'itemId' | 'title' | 'handler' | 'note'> & { id?: string; amount: string };
 export type TournamentInput = Omit<Tournament, 'id' | 'fee' | 'updatedAt'> & { id?: string; fee: string };
 export type GameInput = Omit<Game, 'id' | 'ourScore' | 'oppScore'> & { id?: string; ourScore: string; oppScore: string };
+
+/** 依背號排序（沒有背號的排最後），背號相同再依姓名 */
+export const byNumber = (a: Player, b: Player) => (Number(a.number) || 999) - (Number(b.number) || 999) || a.name.localeCompare(b.name, 'zh-TW');
 
 /** 這個日期所在那一週的星期一 */
 export function mondayOf(dateStr: string): string {
@@ -77,6 +80,15 @@ export function tournamentStatus(t: Pick<Tournament, 'startDate' | 'endDate'>, t
   return { label: '已結束', tone: 'gray' };
 }
 
+/** 包住一個寫入動作：成功後重新讀取資料 */
+const thenReload =
+  (reload: () => void) =>
+  <T,>(p: Promise<T>) =>
+    p.then((r) => {
+      reload();
+      return r;
+    });
+
 export function usePractice(from: string, to: string) {
   const { mode, api } = useStore();
   const q = useCloudQuery<PracticeDay[]>(mode === 'cloud', `practice-${from}-${to}`, () => api<{ days: PracticeDay[] }>('listPractice', { from, to }, '讀取練球通知').then((r) => r.days), []);
@@ -130,14 +142,7 @@ interface BudgetData {
 export function useBudget(year: string) {
   const { mode, api } = useStore();
   const q = useCloudQuery<BudgetData>(mode === 'cloud', `budget-${year}`, () => api<BudgetData>('listBudget', { year }, '讀取預算'), { years: [], items: [], transactions: [] });
-  const after = useCallback(
-    <T,>(p: Promise<T>) =>
-      p.then((r) => {
-        q.reload();
-        return r;
-      }),
-    [q.reload],
-  );
+  const after = useMemo(() => thenReload(q.reload), [q.reload]);
   const saveItem = useCallback((input: BudgetItemInput) => after(api('saveBudgetItem', input, '儲存預算項目')), [api, after]);
   const deleteItem = useCallback((id: string) => after(api('deleteBudgetItem', { id }, '刪除預算項目')), [api, after]);
   const saveTransaction = useCallback((input: TransactionInput) => after(api('saveTransaction', input, '儲存收支')), [api, after]);
@@ -155,14 +160,7 @@ interface TournamentData {
 export function useTournaments() {
   const { mode, api } = useStore();
   const q = useCloudQuery<TournamentData>(mode === 'cloud', 'tournaments', () => api<TournamentData>('listTournaments', {}, '讀取賽事'), { tournaments: [], games: [], names: {}, today: '' });
-  const after = useCallback(
-    <T,>(p: Promise<T>) =>
-      p.then((r) => {
-        q.reload();
-        return r;
-      }),
-    [q.reload],
-  );
+  const after = useMemo(() => thenReload(q.reload), [q.reload]);
   const saveTournament = useCallback((input: TournamentInput) => after(api<{ tournament: Tournament }>('saveTournament', input, '儲存賽事')), [api, after]);
   const deleteTournament = useCallback((id: string) => after(api('deleteTournament', { id }, '刪除賽事')), [api, after]);
   const saveGame = useCallback((input: GameInput) => after(api('saveGame', input, '儲存比賽')), [api, after]);

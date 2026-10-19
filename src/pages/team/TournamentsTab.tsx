@@ -1,17 +1,16 @@
 import { useMemo, useState } from 'react';
-import type { Game, Player, Tournament, TournamentKind } from '../../types';
+import type { Game, Tournament, TournamentKind } from '../../types';
 import { useTask } from '../../store/DemoStore';
 import { usePlayers } from '../../sources/hooks';
-import { gameResult, money, shortDate, TOURNAMENT_KINDS, tournamentStatus, useTournaments, type GameInput, type TournamentInput } from '../../sources/team';
+import { byNumber, gameResult, money, shortDate, TOURNAMENT_KINDS, tournamentStatus, useTournaments, type GameInput, type TournamentInput } from '../../sources/team';
 import { todayStr } from '../../lib/date';
-import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState } from '../../components/UI';
+import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingCard } from '../../components/UI';
 
 type Data = ReturnType<typeof useTournaments>;
 
 const KIND_TONE: Record<string, 'yellow' | 'blue' | 'green' | 'gray'> = { 盃賽: 'yellow', 聯賽: 'blue', 友誼賽: 'green', 其他: 'gray' };
 const RESULT_TONE = { 勝: 'green', 敗: 'red', 和: 'gray' } as const;
 
-const byNumber = (a: Player, b: Player) => (Number(a.number) || 999) - (Number(b.number) || 999) || a.name.localeCompare(b.name, 'zh-TW');
 
 function record(games: Game[]) {
   const r = { 勝: 0, 敗: 0, 和: 0 };
@@ -321,9 +320,7 @@ export function TournamentsTab({ coach }: { coach: boolean }) {
 
   if (data.loading)
     return (
-      <Card>
-        <LoadingState text="讀取賽事…" />
-      </Card>
+      <LoadingCard text="讀取賽事…" />
     );
   return (
     <>

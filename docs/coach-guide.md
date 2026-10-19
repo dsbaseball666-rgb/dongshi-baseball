@@ -199,5 +199,17 @@
 
 ## 七、更新程式時（由開發者協助）
 
-1. Apps Script：貼上新版 `Code.gs` → 儲存 → 執行 `runSelfTests` 確認全部通過。
-2. 「部署」→「管理部署作業」→ ✏️ 編輯 →「版本」選「新版本」→「部署」。網址不會改變。
+**不用再手動貼程式。** 在專案資料夾執行一個指令就會自動完成：
+
+```bash
+npm run deploy:gas
+```
+
+它會依序：在電腦上跑完全部自動測試 → 把 `Code.gs`、`Tests.gs` 送到 Apps Script → 更新網站正在用的部署作業（網址不變）→ 確認網站已經在用新版本。測試沒通過就不會上傳。
+
+第一次設定（已完成，換電腦時才需要重做）：
+1. 到 https://script.google.com/home/usersettings 打開「Google Apps Script API」。
+2. 執行 `npx.cmd clasp login`，用球隊的 Google 帳號登入並允許。
+3. 在 `apps-script/.clasp.json` 填入指令碼 ID（Apps Script →「專案設定」→「指令碼 ID」）。
+
+手動方式（備用）：Apps Script 貼上 `Code.gs`、另一個檔案 `Tests` 貼上 `Tests.gs` → 儲存 →「部署」→「管理部署作業」→ ✏️ 編輯 →「版本」選「新版本」→「部署」。

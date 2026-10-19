@@ -1,0 +1,5 @@
+# 只把這三個檔案送到 Apps Script，其他（本機測試用的 .mjs）不送
+**/**
+!Code.gs
+!Tests.gs
+!appsscript.json
