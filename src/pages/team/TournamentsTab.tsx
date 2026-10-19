@@ -129,6 +129,8 @@ function GameForm({ data, t, editing, onDone }: { data: Data; t: Tournament; edi
   });
   // 以前用過的集合地點，可以直接選
   const places = Array.from(new Set(data.games.map((g) => g.meetPlace).filter(Boolean)));
+  // 集合資料是自動帶入的（還沒自己改過）：換日期時跟著換成那天的（那天沒有就清空）
+  const [autoMeet, setAutoMeet] = useState(!editing);
   return (
     <form
       className="form game-form"
@@ -145,8 +147,8 @@ function GameForm({ data, t, editing, onDone }: { data: Data; t: Tournament; edi
             value={f.date}
             onChange={(e) => {
               const date = e.target.value;
-              // 新增時換日期：如果還沒填集合資料，就帶入那天其他比賽的
-              setF(!editing && !f.meetTime && !f.meetPlace && !f.departTime ? { ...f, date, ...sameDay(date) } : { ...f, date });
+              // 新增時換日期：集合資料如果是自動帶入的，就換成那天其他比賽的
+              setF(autoMeet ? { ...f, date, ...sameDay(date) } : { ...f, date });
             }}
           />
         </Field>
@@ -160,10 +162,16 @@ function GameForm({ data, t, editing, onDone }: { data: Data; t: Tournament; edi
           <input value={f.location} maxLength={60} onChange={(e) => setF({ ...f, location: e.target.value })} />
         </Field>
         <Field label="集合時間" hint="給家長的行前通知">
-          <input type="time" value={f.meetTime} onChange={(e) => setF({ ...f, meetTime: e.target.value })} />
+          <input type="time" value={f.meetTime} onChange={(e) => {
+              setAutoMeet(false);
+              setF({ ...f, meetTime: e.target.value });
+            }} />
         </Field>
         <Field label="集合地點">
-          <input value={f.meetPlace} maxLength={60} list="meet-places" onChange={(e) => setF({ ...f, meetPlace: e.target.value })} placeholder="例如：東勢國中校門口" />
+          <input value={f.meetPlace} maxLength={60} list="meet-places" onChange={(e) => {
+              setAutoMeet(false);
+              setF({ ...f, meetPlace: e.target.value });
+            }} placeholder="例如：東勢國中校門口" />
           <datalist id="meet-places">
             {places.map((p) => (
               <option key={p} value={p} />
@@ -171,7 +179,10 @@ function GameForm({ data, t, editing, onDone }: { data: Data; t: Tournament; edi
           </datalist>
         </Field>
         <Field label="出發時間">
-          <input type="time" value={f.departTime} onChange={(e) => setF({ ...f, departTime: e.target.value })} />
+          <input type="time" value={f.departTime} onChange={(e) => {
+              setAutoMeet(false);
+              setF({ ...f, departTime: e.target.value });
+            }} />
         </Field>
         <Field label="先攻／後攻">
           <select value={f.side} onChange={(e) => setF({ ...f, side: e.target.value as GameInput['side'] })}>
