@@ -1,7 +1,7 @@
-import type { AttendanceStatus, PracticeDay, Player } from '../../types';
+import type { AttendanceStatus, PracticeDay, Player, Tournament } from '../../types';
 import { addDays, formatDateTime, nowIso } from '../../lib/date';
 import { renderTableImage, type ImageCell } from '../../lib/noticeImage';
-import { ATTENDANCE_STATUSES, PRACTICE_ICONS, participantText, PRESENT_STATUSES, shortDate, type PlanInput } from '../../sources/team';
+import { ATTENDANCE_STATUSES, jerseyOrder, PRACTICE_ICONS, participantText, PRESENT_STATUSES, shortDate, type PlanInput } from '../../sources/team';
 
 const TYPE_COLORS: Record<string, { color: string; bg: string; row?: string }> = {
   練球: { color: '#1b5e20', bg: '#d7f0d2' },
@@ -123,6 +123,39 @@ export function planImage(monday: string, sessions: PlanInput[], names: Record<s
       const order = Array.from(new Set(list.map((s) => s.date)));
       return order.indexOf(list[i].date) % 2 ? '#f3f6fb' : '#ffffff';
     },
+    footer: footer(),
+  });
+}
+
+/** 賽事的球員號碼名單圖片（依號碼排，沒號碼的放最後） */
+export function jerseyImage(t: Tournament, players: Player[], names: Record<string, string>): HTMLCanvasElement {
+  const byId = Object.fromEntries(players.map((p) => [p.id, p]));
+  const ids = t.playerIds.slice().sort((a, b) => {
+    const na = t.jerseys[a], nb = t.jerseys[b];
+    if (na && nb) return jerseyOrder(na) - jerseyOrder(nb);
+    return na ? -1 : nb ? 1 : 0;
+  });
+  const dates = t.endDate && t.endDate !== t.startDate ? `${shortDate(t.startDate)}～${shortDate(t.endDate)}` : shortDate(t.startDate);
+  return renderTableImage({
+    title: '👕 球員號碼名單',
+    subtitle: t.name,
+    summary: [dates, t.location && `📍${t.location}`, `共 ${ids.length} 人`].filter(Boolean).join('｜'),
+    columns: [
+      { label: '號碼', width: 110 },
+      { label: '姓名', width: 220 },
+      { label: '年級', width: 130 },
+      { label: '守備位置', width: 260 },
+    ],
+    rows: ids.map((id): ImageCell[] => {
+      const p = byId[id];
+      const no = t.jerseys[id];
+      return [
+        no ? { text: no, bold: true, color: '#ffffff', bg: '#23263a' } : { text: '未編號', color: '#9aa0b4' },
+        { text: names[id] ?? p?.name ?? '', bold: true },
+        { text: p?.grade ?? '' },
+        { text: p?.position ?? '' },
+      ];
+    }),
     footer: footer(),
   });
 }

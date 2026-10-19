@@ -580,6 +580,8 @@ export interface Tournament {
   fee: number;
   result: string;
   playerIds: string[];
+  /** 這場賽事的球衣號碼：球員編號 → 號碼（例如 "7"、"00"）；只在比賽用 */
+  jerseys: Record<string, string>;
   note: string;
   updatedAt: string;
 }

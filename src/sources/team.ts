@@ -20,7 +20,7 @@ export type PracticeInput = Pick<PracticeDay, 'date' | 'startTime' | 'endTime' |
 export type ProfileInput = Omit<PlayerProfile, 'updatedBy' | 'updatedAt'>;
 export type BudgetItemInput = Omit<BudgetItem, 'id' | 'amount'> & { id?: string; amount: string };
 export type TransactionInput = Pick<Transaction, 'year' | 'date' | 'type' | 'itemId' | 'title' | 'handler' | 'note'> & { id?: string; amount: string };
-export type TournamentInput = Omit<Tournament, 'id' | 'fee' | 'updatedAt'> & { id?: string; fee: string };
+export type TournamentInput = Omit<Tournament, 'id' | 'fee' | 'updatedAt' | 'jerseys'> & { id?: string; fee: string };
 export type GameInput = Omit<Game, 'id' | 'ourScore' | 'oppScore'> & { id?: string; ourScore: string; oppScore: string };
 
 /** 依背號排序（沒有背號的排最後），背號相同再依姓名 */
@@ -165,7 +165,8 @@ export function useTournaments() {
   const deleteTournament = useCallback((id: string) => after(api('deleteTournament', { id }, '刪除賽事')), [api, after]);
   const saveGame = useCallback((input: GameInput) => after(api('saveGame', input, '儲存比賽')), [api, after]);
   const deleteGame = useCallback((id: string) => after(api('deleteGame', { id }, '刪除比賽')), [api, after]);
-  return { ...q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, saveTournament, deleteTournament, saveGame, deleteGame };
+  const saveJerseys = useCallback((tournamentId: string, jerseys: Record<string, string>) => after(api('saveJerseys', { tournamentId, jerseys }, '儲存球衣號碼')), [api, after]);
+  return { ...q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, saveTournament, deleteTournament, saveGame, deleteGame, saveJerseys };
 }
 
 /* ───────── 教練練球安排 ───────── */
@@ -212,3 +213,10 @@ export function participantText(ids: string[], names: Record<string, string>, ma
   const list = ids.map((id) => names[id] ?? '（已刪除）');
   return list.length > max ? `${list.slice(0, max).join('、')}…等 ${list.length} 人` : `${list.join('、')}（${list.length} 人）`;
 }
+
+/* ───────── 球衣號碼（只在賽事用） ───────── */
+
+/** 可以選的號碼：0、00、1～99 */
+export const JERSEY_NUMBERS = ['0', '00', ...Array.from({ length: 99 }, (_, i) => String(i + 1))];
+/** 號碼排序：0、00、1、2…99 */
+export const jerseyOrder = (no: string) => (no === '00' ? 0.5 : Number(no));

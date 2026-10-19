@@ -695,3 +695,12 @@ td.strong { font-weight: 700; }
 .inline-input { width: auto; flex: 1 1 140px; min-width: 120px; }
 .copy-to { margin-top: 12px; }
 .plan-day.is-editing { outline: 4px solid var(--blue); outline-offset: 1px; }
+
+/* 賽事球衣號碼（5.8.4） */
+.jersey-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px; margin: 8px 0; }
+.jersey-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #f7f8fb; border: 2px solid #d5d9e4; border-radius: var(--radius); }
+.jersey-row.has-no { background: #fff; border-color: var(--line); }
+.jersey-row select { width: auto; min-width: 92px; font-weight: 700; }
+.jersey-name { min-width: 0; }
+.roster-chip { display: inline-flex; align-items: center; gap: 4px; }
+.jersey-no { display: inline-block; min-width: 24px; padding: 0 4px; text-align: center; font-weight: 800; color: #fff; background: var(--ink); border-radius: 4px; }

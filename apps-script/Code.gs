@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.8.3';
+const API_VERSION = '5.8.4';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -59,7 +59,8 @@ const SCHEMA = {
   PlayerProfiles: ['playerId', 'birthday', 'className', 'batsThrows', 'height', 'weight', 'phone', 'address', 'guardianName', 'guardianRelation', 'guardianPhone', 'guardian2Name', 'guardian2Relation', 'guardian2Phone', 'medicalNote', 'note', 'updatedBy', 'updatedAt'],
   BudgetItems: ['id', 'year', 'type', 'name', 'amount', 'note', 'createdById', 'createdAt', 'updatedAt'],
   Transactions: ['id', 'year', 'date', 'type', 'itemId', 'title', 'amount', 'handler', 'note', 'createdById', 'createdBy', 'createdAt', 'updatedAt'],
-  Tournaments: ['id', 'name', 'kind', 'startDate', 'endDate', 'location', 'organizer', 'signupDeadline', 'fee', 'result', 'playerIds', 'note', 'createdById', 'createdAt', 'updatedAt'],
+  // jerseys（5.8.4）：這場賽事的球衣號碼 JSON（球員編號 → 號碼文字，例如 "7"、"00"）；只在比賽用，平常不顯示
+  Tournaments: ['id', 'name', 'kind', 'startDate', 'endDate', 'location', 'organizer', 'signupDeadline', 'fee', 'result', 'playerIds', 'note', 'createdById', 'createdAt', 'updatedAt', 'jerseys'],
   Games: ['id', 'tournamentId', 'date', 'time', 'opponent', 'location', 'side', 'ourScore', 'oppScore', 'note', 'createdById', 'createdAt', 'updatedAt'],
   // 5.8：教練練球安排（一天多個時段、指定參加人員；playerIds 空白＝全隊）
   TrainingPlans: ['id', 'date', 'startTime', 'endTime', 'slot', 'items', 'playerIds', 'location', 'note', 'createdById', 'updatedBy', 'createdAt', 'updatedAt'],
@@ -284,6 +285,7 @@ const ROUTES = {
   saveTournament: { roles: COACH, write: true, fn: saveTournament_ },
   deleteTournament: { roles: COACH, write: true, fn: deleteTournament_ },
   saveGame: { roles: COACH, write: true, fn: saveGame_ },
+  saveJerseys: { roles: COACH, write: true, fn: saveJerseys_ },
   deleteGame: { roles: COACH, write: true, fn: deleteGame_ },
   listPlan: { roles: ALL_ROLES, fn: listPlan_ },
   savePlanWeek: { roles: COACH, write: true, fn: savePlanWeek_ },
@@ -3055,10 +3057,42 @@ function deleteTransaction_(ctx) {
 /* ── 賽事管理 ── */
 
 function parseTournament_(r) {
+  const playerIds = r.playerIds ? r.playerIds.split(',') : [];
+  // 只回傳目前還在參賽名單裡的球員號碼
+  const saved = parseJson_(r.jerseys, {});
+  const jerseys = {};
+  playerIds.forEach((id) => {
+    if (typeof saved[id] === 'string' && JERSEY_RE.test(saved[id])) jerseys[id] = saved[id];
+  });
   return {
     id: r.id, name: r.name, kind: r.kind, startDate: r.startDate, endDate: r.endDate, location: r.location, organizer: r.organizer,
-    signupDeadline: r.signupDeadline, fee: Number(r.fee) || 0, result: r.result, playerIds: r.playerIds ? r.playerIds.split(',') : [], note: r.note, updatedAt: r.updatedAt,
+    signupDeadline: r.signupDeadline, fee: Number(r.fee) || 0, result: r.result, playerIds: playerIds, jerseys: jerseys, note: r.note, updatedAt: r.updatedAt,
   };
+}
+
+/** 球衣號碼：0～99，另外接受 00 */
+const JERSEY_RE = /^(00|\d|[1-9]\d)$/;
+
+/** 安排這場賽事的球衣號碼（整份送來：球員編號 → 號碼；空白＝不給號碼） */
+function saveJerseys_(ctx) {
+  const t = findById_('Tournaments', ctx.payload.tournamentId, '賽事', '找不到這個賽事。');
+  const roster = t.playerIds ? t.playerIds.split(',') : [];
+  const raw = ctx.payload.jerseys;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw apiError_('INVALID', '球衣號碼的格式不正確。');
+  const out = {};
+  const usedBy = {};
+  Object.keys(raw).forEach((id) => {
+    if (roster.indexOf(id) < 0) throw apiError_('INVALID', '只能幫參賽名單裡的球員安排號碼。');
+    const no = str_(raw[id], '球衣號碼', { max: 2 });
+    if (!no) return;
+    if (!JERSEY_RE.test(no)) throw apiError_('INVALID', '球衣號碼請選 0～99 或 00。');
+    if (usedBy[no]) throw apiError_('INVALID', no + ' 號重複了，每個號碼只能給一位球員。');
+    usedBy[no] = id;
+    out[id] = no;
+  });
+  ensureHeaders_('Tournaments');
+  updateRow_('Tournaments', t._row, Object.assign({}, t, { jerseys: JSON.stringify(out), updatedAt: nowIso_() }));
+  return { jerseys: out };
 }
 
 function parseGame_(r) {
@@ -3076,7 +3110,7 @@ function listTournaments_() {
   tournaments.forEach((t) => t.playerIds.forEach((id) => (used[id] = true)));
   const names = {};
   readAll_('Players').forEach((p) => {
-    if (used[p.id]) names[p.id] = (p.number ? '#' + p.number + ' ' : '') + p.name;
+    if (used[p.id]) names[p.id] = p.name;
   });
   const games = readAll_('Games').map(parseGame_);
   games.sort((x, y) => (x.date + x.time < y.date + y.time ? -1 : 1));
@@ -3326,6 +3360,14 @@ function upsert_(name, id, fields, newFields, notFound) {
   const row = Object.assign(newFields, fields);
   appendRow_(name, row);
   return row;
+}
+
+/** 新版本在最後面加了欄位時，先補上第 1 列的欄位名稱（舊的工作表沒重新執行 setup 也能正常寫入） */
+function ensureHeaders_(name) {
+  const sh = sheet_(name);
+  const headers = SCHEMA[name];
+  const current = sh.getRange(1, 1, 1, headers.length).getDisplayValues()[0];
+  if (current[headers.length - 1] !== headers[headers.length - 1]) sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#fff3c4');
 }
 
 function appendRow_(name, obj) {

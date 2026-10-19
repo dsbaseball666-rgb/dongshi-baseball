@@ -630,6 +630,17 @@ function runSelfTests() {
       const lt = call('listTournaments', {}, tPA);
       const myT = lt.ok ? lt.data.tournaments.find((t) => t.id === tnId) : null;
       results.push([!!myT && myT.playerIds.length === 2 && !!lt.data.names['TEST-PA'] && lt.data.games.some((g) => gm.ok && g.id === gm.data.game.id && g.ourScore === 5), '球員看得到賽事、參賽名單與比分', lt.ok ? '' : lt.error]);
+      const jz = (j, t) => call('saveJerseys', { tournamentId: tnId, jerseys: j }, t || tCoach, Utilities.getUuid());
+      const j1 = jz({ 'TEST-PA': '7', 'TEST-PB': '00' });
+      const tnJ = call('listTournaments', {}, tPA).data.tournaments.find((t) => t.id === tnId);
+      results.push([j1.ok && tnJ && tnJ.jerseys['TEST-PA'] === '7' && tnJ.jerseys['TEST-PB'] === '00', '教練可以安排這場賽事的球衣號碼（含 00），球員看得到', j1.ok ? '' : j1.error]);
+      expectFail('同一場賽事的球衣號碼不能重複', jz({ 'TEST-PA': '7', 'TEST-PB': '7' }), 'INVALID');
+      expectFail('球衣號碼不能超過 99', jz({ 'TEST-PA': '100' }), 'INVALID');
+      expectFail('不在參賽名單的球員不能給號碼', jz({ 'NOPE-1': '5' }), 'INVALID');
+      expectFail('球員不能安排球衣號碼', jz({ 'TEST-PA': '1' }, tPA), 'FORBIDDEN');
+      call('saveTournament', Object.assign({}, tnIn, { id: tnId, playerIds: ['TEST-PA'] }), tCoach, Utilities.getUuid());
+      const tnJ2 = call('listTournaments', {}, tCoach).data.tournaments.find((t) => t.id === tnId);
+      results.push([tnJ2 && tnJ2.jerseys['TEST-PA'] === '7' && !('TEST-PB' in tnJ2.jerseys), '修改賽事資料時保留號碼；移出參賽名單的球員不再顯示號碼', JSON.stringify(tnJ2 && tnJ2.jerseys)]);
       const dt = call('deleteTournament', { id: tnId }, tCoach, Utilities.getUuid());
       results.push([dt.ok && dt.data.games === 1 && !readAll_('Games').some((g) => g.tournamentId === tnId), '刪除賽事會連同它的比賽一起刪除', dt.ok ? '' : dt.error]);
 

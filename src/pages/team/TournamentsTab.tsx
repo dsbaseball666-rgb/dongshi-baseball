@@ -2,8 +2,11 @@ import { useMemo, useState } from 'react';
 import type { Game, Tournament, TournamentKind } from '../../types';
 import { useTask } from '../../store/DemoStore';
 import { usePlayers } from '../../sources/hooks';
-import { byNumber, gameResult, money, shortDate, TOURNAMENT_KINDS, tournamentStatus, useTournaments, type GameInput, type TournamentInput } from '../../sources/team';
+import { byNumber, gameResult, jerseyOrder, money, shortDate, TOURNAMENT_KINDS, tournamentStatus, useTournaments, type GameInput, type TournamentInput } from '../../sources/team';
 import { todayStr } from '../../lib/date';
+import { LineImageButton } from '../../components/LineImage';
+import { JerseyEditor } from './JerseyEditor';
+import { jerseyImage } from './images';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingCard } from '../../components/UI';
 
 type Data = ReturnType<typeof useTournaments>;
@@ -178,6 +181,15 @@ function TournamentDetail({ data, t, coach, onEdit }: { data: Data; t: Tournamen
   const games = data.games.filter((g) => g.tournamentId === t.id);
   const st = tournamentStatus(t, data.today || todayStr());
   const rec = record(games);
+  const { players } = usePlayers();
+  const [jerseyOpen, setJerseyOpen] = useState(false);
+  // 參賽名單：有球衣號碼的依號碼排在前面
+  const roster = t.playerIds.slice().sort((a, b) => {
+    const na = t.jerseys[a], nb = t.jerseys[b];
+    if (na && nb) return jerseyOrder(na) - jerseyOrder(nb);
+    return na ? -1 : nb ? 1 : 0;
+  });
+  const numbered = t.playerIds.filter((id) => t.jerseys[id]).length;
   return (
     <Card
       title={t.name}
@@ -222,13 +234,27 @@ function TournamentDetail({ data, t, coach, onEdit }: { data: Data; t: Tournamen
         {coach && t.fee > 0 && <li>💰 報名費：{money(t.fee)} 元</li>}
       </ul>
       {t.note && <p className="pre-line small">{t.note}</p>}
-      <h3 className="section-title">參賽名單（{t.playerIds.length} 位）</h3>
+      <div className="row-between">
+        <h3 className="section-title">
+          參賽名單（{t.playerIds.length} 位{numbered > 0 && `，已編號 ${numbered} 位`}）
+        </h3>
+        {coach && t.playerIds.length > 0 && !jerseyOpen && (
+          <span className="form-actions">
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => setJerseyOpen(true)}>
+              👕 安排球衣號碼
+            </button>
+            <LineImageButton key={t.id + t.updatedAt} make={() => jerseyImage(t, players, data.names)} filename={`號碼名單-${t.name}.png`} title={`${t.name} 球員號碼名單`} label="🖼️ 號碼名單圖片" />
+          </span>
+        )}
+      </div>
+      {jerseyOpen && <JerseyEditor t={t} all={data.tournaments} players={players} names={data.names} save={(j) => data.saveJerseys(t.id, j)} onDone={() => setJerseyOpen(false)} />}
       {t.playerIds.length === 0 ? (
         <p className="muted small">還沒有設定參賽名單。</p>
       ) : (
         <div className="chip-row">
-          {t.playerIds.map((id) => (
-            <span key={id} className="badge badge-gray">
+          {roster.map((id) => (
+            <span key={id} className="badge badge-gray roster-chip">
+              {t.jerseys[id] && <span className="jersey-no">{t.jerseys[id]}</span>}
               {data.names[id] ?? '（已刪除的球員）'}
             </span>
           ))}
