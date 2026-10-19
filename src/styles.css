@@ -681,3 +681,17 @@ td.strong { font-weight: 700; }
 .group-row { margin-top: 8px; align-items: center; }
 .player-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .chip-no { margin-right: 3px; opacity: 0.7; font-size: 0.8em; }
+
+/* 一天的安排畫面（5.8.3） */
+.day-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.day-row { padding: 8px 10px; background: #f7f8fb; border: 2px solid #d5d9e4; border-radius: var(--radius); }
+.day-row.on { background: #fff; border-color: var(--grass); box-shadow: var(--shadow); }
+.day-row-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.day-row-head .time-pair { margin-top: 0; }
+.day-row-toggle { min-width: 70px; font-size: 1.05rem; }
+.day-row-body { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 2px dashed #d5d9e4; }
+.status-btn.taken, .status-btn:disabled { opacity: 0.45; cursor: not-allowed; text-decoration: line-through; }
+.chip-taken { margin-left: 2px; font-size: 0.75em; text-decoration: none; }
+.inline-input { width: auto; flex: 1 1 140px; min-width: 120px; }
+.copy-to { margin-top: 12px; }
+.plan-day.is-editing { outline: 4px solid var(--blue); outline-offset: 1px; }

@@ -61,6 +61,14 @@ TEST_ACCOUNTS.forEach((a, i) => {
   });
 });
 
+// 虛構的球員（只在模擬伺服器裡，沒有帳號），讓「練球安排」等功能有比較多人可以選
+[
+  ['陳小投', '1', '九年級', '投手'], ['林小捕', '2', '九年級', '捕手'], ['黃一壘', '3', '八年級', '內野'], ['張二壘', '4', '八年級', '內野'],
+  ['李游擊', '6', '九年級', '內野，投手'], ['王左外', '8', '七年級', '外野'], ['吳中外', '9', '七年級', '外野'], ['趙右投', '11', '八年級', '投手，外野'],
+].forEach(([name, number, grade, position], i) => {
+  gas.appendRow_('Players', { id: 'P1' + String(i).padStart(2, '0'), name, number, grade, position, active: 'TRUE', createdAt: now, updatedAt: now });
+});
+
 http
   .createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');

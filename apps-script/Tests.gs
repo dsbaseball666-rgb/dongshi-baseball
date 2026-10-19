@@ -649,6 +649,10 @@ function runSelfTests() {
       expectFail('不在這一週的日期會被拒絕', plan([Object.assign({}, sTeam, { date: '2099-01-12' })]), 'INVALID');
       expectFail('訓練內容不正確會被拒絕', plan([Object.assign({}, sTeam, { items: ['打電動'] })]), 'INVALID');
       expectFail('不存在的球員不能排進時段', plan([Object.assign({}, sTeam, { playerIds: ['NOPE-1'] })]), 'INVALID');
+      const sB2 = Object.assign({}, sB, { startTime: '16:00', endTime: '18:00', slot: '下午' });
+      expectFail('同一天同一位球員不能排進兩個時段', plan([sB, sB2]), 'INVALID');
+      expectFail('同一天排了全隊就不能再排其他時段', plan([sTeam, Object.assign({}, sB, { date: sTeam.date })]), 'INVALID');
+      expectOk('同一天不同球員可以分組排在不同時段', plan([sB, Object.assign({}, sB2, { playerIds: ['TEST-PA'] })]));
       const pl2 = plan([sB]);
       const after = readAll_('TrainingPlans').filter((x) => x.date >= wk && x.date <= '2099-01-11');
       results.push([pl2.ok && pl2.data.removed === 2 && after.length === 1, '重新儲存同一週會整週換掉，不會重複', pl2.ok ? JSON.stringify(pl2.data) : pl2.error]);

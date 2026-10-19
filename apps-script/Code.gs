@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.8.2';
+const API_VERSION = '5.8.3';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -3190,6 +3190,23 @@ function savePlanWeek_(ctx) {
       playerIds: ids.join(','), location: str_(s.location, '地點', { max: 40 }), note: str_(s.note, '備註', { max: 200 }),
       createdById: a.id, updatedBy: a.displayName, createdAt: now, updatedAt: now,
     };
+  });
+  // 同一天每位球員只能排在一個時段；排了「全隊」的那天不能再排其他時段
+  const byDate = {};
+  rows.forEach((r) => (byDate[r.date] = (byDate[r.date] || []).concat([r])));
+  Object.keys(byDate).forEach((date) => {
+    const list = byDate[date];
+    if (list.length > 1 && list.some((r) => !r.playerIds)) throw apiError_('INVALID', date + ' 已經排了全隊，不能再排其他時段。');
+    const seen = {};
+    list.forEach((r) =>
+      r.playerIds.split(',').forEach((id) => {
+        if (seen[id]) {
+          const p = players.find((x) => x.id === id);
+          throw apiError_('INVALID', date + ' ' + (p ? p.name : id) + ' 同時被排在「' + seen[id] + '」和「' + (r.slot || r.startTime) + '」。');
+        }
+        seen[id] = r.slot || r.startTime;
+      }),
+    );
   });
   const old = readAll_('TrainingPlans').filter((x) => x.date >= weekStart && x.date <= weekEnd).map((x) => x._row).sort((x, y) => y - x);
   old.forEach((row) => deleteRow_('TrainingPlans', row));
