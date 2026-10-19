@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.8.4';
+const API_VERSION = '5.8.5';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -56,7 +56,7 @@ const SCHEMA = {
   // 5.7：球隊管理（練球通知、出缺席、通訊錄、預算、賽事）
   PracticeDays: ['id', 'date', 'type', 'startTime', 'endTime', 'location', 'content', 'note', 'createdById', 'updatedBy', 'createdAt', 'updatedAt'],
   Attendance: ['id', 'date', 'playerId', 'status', 'reason', 'updatedBy', 'createdAt', 'updatedAt'],
-  PlayerProfiles: ['playerId', 'birthday', 'className', 'batsThrows', 'height', 'weight', 'phone', 'address', 'guardianName', 'guardianRelation', 'guardianPhone', 'guardian2Name', 'guardian2Relation', 'guardian2Phone', 'medicalNote', 'note', 'updatedBy', 'updatedAt'],
+  PlayerProfiles: ['playerId', 'birthday', 'className', 'batsThrows', 'height', 'weight', 'phone', 'address', 'guardianName', 'guardianRelation', 'guardianPhone', 'guardian2Name', 'guardian2Relation', 'guardian2Phone', 'medicalNote', 'note', 'updatedBy', 'updatedAt', 'photoId'],
   BudgetItems: ['id', 'year', 'type', 'name', 'amount', 'note', 'createdById', 'createdAt', 'updatedAt'],
   Transactions: ['id', 'year', 'date', 'type', 'itemId', 'title', 'amount', 'handler', 'note', 'createdById', 'createdBy', 'createdAt', 'updatedAt'],
   // jerseys（5.8.4）：這場賽事的球衣號碼 JSON（球員編號 → 號碼文字，例如 "7"、"00"）；只在比賽用，平常不顯示
@@ -275,6 +275,13 @@ const ROUTES = {
   listAttendance: { roles: COACH, fn: listAttendance_ },
   saveAttendance: { roles: COACH, write: true, fn: saveAttendance_ },
   listProfiles: { roles: COACH, fn: listProfiles_ },
+  // 大頭照：全隊都看得到；只有教練可以更換
+  listPhotos: { roles: ALL_ROLES, fn: listPhotos_ },
+  savePhoto: { roles: COACH, write: true, fn: savePhoto_ },
+  deletePhoto: { roles: COACH, write: true, fn: deletePhoto_ },
+  listPhotoSources: { roles: COACH, fn: listPhotoSources_ },
+  listPhotoFolder: { roles: COACH, fn: listPhotoFolder_ },
+  getPhotoFile: { roles: COACH, fn: getPhotoFile_ },
   saveProfile: { roles: COACH, write: true, fn: saveProfile_ },
   listBudget: { roles: COACH, fn: listBudget_ },
   saveBudgetItem: { roles: COACH, write: true, fn: saveBudgetItem_ },
@@ -2956,10 +2963,146 @@ function saveProfile_(ctx) {
     if (fields[k] && GUARDIAN_RELATIONS.indexOf(fields[k]) < 0) throw apiError_('INVALID', '關係請選擇「母／父／隔代／其他」。');
   });
   const old = readAll_('PlayerProfiles').find((x) => x.playerId === playerId);
-  if (old) updateRow_('PlayerProfiles', old._row, fields);
+  if (old) updateRow_('PlayerProfiles', old._row, Object.assign({}, old, fields));
   else appendRow_('PlayerProfiles', fields);
   audit_(a, '修改球員個人資料', playerId, '');
   return { profile: parseProfile_(stringify_(fields)) };
+}
+
+/* ── 球員大頭照：照片存在雲端硬碟資料夾（不公開分享），試算表只記照片的檔案編號 ── */
+
+const PHOTO_FOLDER_NAME = '東勢國中棒球隊 球員大頭照';
+const PHOTO_MAX_BASE64 = 600000; // 約 450 KB；網頁上傳前會先縮小，正常只有幾十 KB
+
+/** 照片資料夾：用名稱找（可以搬到雲端硬碟的任何地方），沒有就建立 */
+function photoFolder_() {
+  const it = DriveApp.getFoldersByName(PHOTO_FOLDER_NAME);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(PHOTO_FOLDER_NAME);
+}
+
+/** 讀出一張照片（data: 網址）；小照片快取 6 小時，避免每次都讀雲端硬碟 */
+function photoData_(fileId) {
+  const cache = CacheService.getScriptCache();
+  const key = 'photo_' + fileId;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  try {
+    const blob = DriveApp.getFileById(fileId).getBlob();
+    const url = 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
+    if (url.length < 95000) cache.put(key, url, SESSION_SECONDS);
+    return url;
+  } catch (e) {
+    return ''; // 照片被刪掉或移到垃圾桶：當作沒有照片
+  }
+}
+
+/** 全隊在籍球員的大頭照（全隊都看得到）：球員編號 → data: 網址 */
+function listPhotos_() {
+  const active = {};
+  readAll_('Players').forEach((p) => {
+    if (p.active === 'TRUE') active[p.id] = true;
+  });
+  const photos = {};
+  readAll_('PlayerProfiles').forEach((r) => {
+    if (!active[r.playerId] || !r.photoId) return;
+    const url = photoData_(r.photoId);
+    if (url) photos[r.playerId] = url;
+  });
+  return { photos: photos };
+}
+
+function trashFile_(fileId) {
+  try {
+    DriveApp.getFileById(fileId).setTrashed(true);
+  } catch (e) {
+    // 已經不存在就算了
+  }
+}
+
+/** 教練幫一位球員換大頭照（舊照片移到垃圾桶，30 天內可以從雲端硬碟救回來） */
+function savePhoto_(ctx) {
+  const a = ctx.actor;
+  const playerId = str_(ctx.payload.playerId, '球員', { required: true, max: 20 });
+  const player = readAll_('Players').find((x) => x.id === playerId);
+  if (!player) throw apiError_('NOT_FOUND', '找不到這位球員。');
+  const m = /^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/.exec(typeof ctx.payload.image === 'string' ? ctx.payload.image : '');
+  if (!m) throw apiError_('INVALID', '請選擇 JPG 或 PNG 照片。');
+  if (m[2].length > PHOTO_MAX_BASE64) throw apiError_('INVALID', '照片太大，請換一張比較小的照片。');
+  const name = player.name + '_' + playerId + (m[1] === 'png' ? '.png' : '.jpg');
+  const file = photoFolder_().createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), 'image/' + m[1], name));
+  const old = readAll_('PlayerProfiles').find((x) => x.playerId === playerId);
+  if (old && old.photoId) trashFile_(old.photoId);
+  const fields = { playerId: playerId, photoId: file.getId(), updatedBy: a.displayName, updatedAt: nowIso_() };
+  ensureHeaders_('PlayerProfiles');
+  if (old) updateRow_('PlayerProfiles', old._row, Object.assign({}, old, fields));
+  else appendRow_('PlayerProfiles', fields);
+  audit_(a, '更換球員大頭照', playerId, player.name);
+  return { playerId: playerId, photo: 'data:image/' + m[1] + ';base64,' + m[2] };
+}
+
+function deletePhoto_(ctx) {
+  const a = ctx.actor;
+  const playerId = str_(ctx.payload.playerId, '球員', { required: true, max: 20 });
+  const old = readAll_('PlayerProfiles').find((x) => x.playerId === playerId);
+  if (!old || !old.photoId) throw apiError_('NOT_FOUND', '這位球員沒有大頭照。');
+  trashFile_(old.photoId);
+  updateRow_('PlayerProfiles', old._row, Object.assign({}, old, { photoId: '', updatedBy: a.displayName, updatedAt: nowIso_() }));
+  audit_(a, '刪除球員大頭照', playerId, '');
+  return { playerId: playerId };
+}
+
+/* 從雲端硬碟的資料夾匯入：教練選資料夾 → 網頁一張一張讀原圖、縮小後用 savePhoto 存起來 */
+
+/** 名稱有「大頭照」的資料夾（不含網站自己用的那個），讓教練選要從哪裡匯入 */
+function listPhotoSources_() {
+  const folders = [];
+  const it = DriveApp.searchFolders("title contains '大頭照' and trashed = false");
+  while (it.hasNext() && folders.length < 50) {
+    const f = it.next();
+    if (f.getName() !== PHOTO_FOLDER_NAME) folders.push({ id: f.getId(), name: f.getName() });
+  }
+  folders.sort((x, y) => (x.name < y.name ? -1 : 1));
+  return { folders: folders };
+}
+
+function sourceFolder_(v) {
+  const id = str_(v, '資料夾', { required: true, max: 100 });
+  try {
+    return DriveApp.getFolderById(id);
+  } catch (e) {
+    throw apiError_('NOT_FOUND', '找不到這個資料夾。');
+  }
+}
+
+/** 資料夾裡的 JPG／PNG 照片（只列檔名，不讀內容） */
+function listPhotoFolder_(ctx) {
+  const it = sourceFolder_(ctx.payload.folderId).getFiles();
+  const files = [];
+  while (it.hasNext() && files.length < 300) {
+    const f = it.next();
+    if (!f.isTrashed() && /^image\/(jpeg|png)$/.test(f.getMimeType())) files.push({ id: f.getId(), name: f.getName() });
+  }
+  files.sort((x, y) => (x.name < y.name ? -1 : 1));
+  return { files: files };
+}
+
+/** 讀一張原圖給網頁縮小；只能讀這個資料夾裡的照片 */
+function getPhotoFile_(ctx) {
+  const folder = sourceFolder_(ctx.payload.folderId);
+  const id = str_(ctx.payload.fileId, '照片', { required: true, max: 100 });
+  let f;
+  try {
+    f = DriveApp.getFileById(id);
+  } catch (e) {
+    throw apiError_('NOT_FOUND', '找不到這張照片。');
+  }
+  let inFolder = false;
+  const parents = f.getParents();
+  while (parents.hasNext()) if (parents.next().getId() === folder.getId()) inFolder = true;
+  if (!inFolder) throw apiError_('FORBIDDEN', '只能讀取選定資料夾裡的照片。');
+  if (!/^image\/(jpeg|png)$/.test(f.getMimeType())) throw apiError_('INVALID', '這個檔案不是 JPG 或 PNG 照片。');
+  if (f.getSize() > 8 * 1024 * 1024) throw apiError_('INVALID', '照片超過 8 MB，請換小一點的照片。');
+  return { image: 'data:' + f.getMimeType() + ';base64,' + Utilities.base64Encode(f.getBlob().getBytes()) };
 }
 
 /* ── 預算管理 ── */

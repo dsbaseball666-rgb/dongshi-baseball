@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Game, Tournament, TournamentKind } from '../../types';
 import { useTask } from '../../store/DemoStore';
 import { usePlayers } from '../../sources/hooks';
-import { byNumber, gameResult, jerseyOrder, money, shortDate, TOURNAMENT_KINDS, tournamentStatus, useTournaments, type GameInput, type TournamentInput } from '../../sources/team';
+import { byNumber, gameResult, jerseyOrder, usePhotos, money, shortDate, TOURNAMENT_KINDS, tournamentStatus, useTournaments, type GameInput, type TournamentInput } from '../../sources/team';
 import { todayStr } from '../../lib/date';
 import { LineImageButton } from '../../components/LineImage';
 import { JerseyEditor } from './JerseyEditor';
@@ -182,6 +182,7 @@ function TournamentDetail({ data, t, coach, onEdit }: { data: Data; t: Tournamen
   const st = tournamentStatus(t, data.today || todayStr());
   const rec = record(games);
   const { players } = usePlayers();
+  const { photos } = usePhotos(coach);
   const [jerseyOpen, setJerseyOpen] = useState(false);
   // 參賽名單：有球衣號碼的依號碼排在前面
   const roster = t.playerIds.slice().sort((a, b) => {
@@ -243,7 +244,7 @@ function TournamentDetail({ data, t, coach, onEdit }: { data: Data; t: Tournamen
             <button type="button" className="btn btn-sm btn-primary" onClick={() => setJerseyOpen(true)}>
               👕 安排球衣號碼
             </button>
-            <LineImageButton key={t.id + t.updatedAt} make={() => jerseyImage(t, players, data.names)} filename={`號碼名單-${t.name}.png`} title={`${t.name} 球員號碼名單`} label="🖼️ 號碼名單圖片" />
+            <LineImageButton key={t.id + t.updatedAt} make={() => jerseyImage(t, players, data.names, photos)} filename={`號碼名單-${t.name}.png`} title={`${t.name} 球員號碼名單`} label="🖼️ 號碼名單圖片" />
           </span>
         )}
       </div>

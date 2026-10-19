@@ -93,6 +93,55 @@ export function createGasEnv() {
     externals.set(id, { getName: () => title, getSheetByName: (n) => list.find((s) => s.name === n) || null });
   };
   const logs = [];
+  // 模擬雲端硬碟：資料夾與檔案只存在記憶體
+  const driveFiles = new Map();
+  const driveFolders = [];
+  const iterator = (list) => {
+    let i = 0;
+    return { hasNext: () => i < list.length, next: () => list[i++] };
+  };
+  const fileApi = (id) => {
+    const f = driveFiles.get(id);
+    return {
+      getId: () => id, getName: () => f.blob.getName(), getBlob: () => f.blob, getMimeType: () => f.blob.getContentType(), getSize: () => f.blob.getBytes().length,
+      isTrashed: () => f.trashed, setTrashed: (v) => (f.trashed = v), getParents: () => iterator(driveFolders.filter((x) => x.getId() === f.folderId)),
+    };
+  };
+  const drive = {
+    getFoldersByName: (n) => iterator(driveFolders.filter((f) => f.getName() === n && !f.isTrashed())),
+    // 只支援這個專案用到的查詢：title contains '…'
+    searchFolders: (q) => {
+      const word = (q.match(/title contains '([^']+)'/) || [])[1] || '';
+      return iterator(driveFolders.filter((f) => f.getName().includes(word) && !f.isTrashed()));
+    },
+    getFolderById: (id) => {
+      const f = driveFolders.find((x) => x.getId() === id);
+      if (!f) throw new Error('not found');
+      return f;
+    },
+    createFolder: (name) => {
+      const folderId = 'folder-' + (driveFolders.length + 1);
+      let trashed = false;
+      const folder = {
+        getId: () => folderId,
+        getName: () => name,
+        isTrashed: () => trashed,
+        setTrashed: (v) => (trashed = v),
+        createFile: (blob) => {
+          const id = 'file-' + (driveFiles.size + 1);
+          driveFiles.set(id, { blob, trashed: false, folder: name, folderId });
+          return fileApi(id);
+        },
+        getFiles: () => iterator([...driveFiles.keys()].filter((id) => driveFiles.get(id).folderId === folderId).map(fileApi)),
+      };
+      driveFolders.push(folder);
+      return folder;
+    },
+    getFileById: (id) => {
+      if (!driveFiles.has(id)) throw new Error('not found');
+      return fileApi(id);
+    },
+  };
   const context = {
     console: { log: (...a) => logs.push(a.join(' ')), error: (...a) => logs.push('ERROR ' + a.join(' ')) },
     SpreadsheetApp: {
@@ -131,6 +180,9 @@ export function createGasEnv() {
     ContentService: { createTextOutput: (s) => ({ content: s, setMimeType() { return this; } }), MimeType: { JSON: 'json' } },
     Utilities: {
       getUuid: () => randomUUID(),
+      base64Decode: (s) => [...Buffer.from(s, 'base64')].map((b) => (b > 127 ? b - 256 : b)),
+      base64Encode: (bytes) => Buffer.from(bytes.map((b) => b & 255)).toString('base64'),
+      newBlob: (bytes, type, name) => ({ getBytes: () => bytes, getContentType: () => type, getName: () => name }),
       DigestAlgorithm: { SHA_256: 'sha256' },
       Charset: { UTF_8: 'utf8' },
       computeDigest: (_alg, s) => [...createHash('sha256').update(s, 'utf8').digest()].map((b) => (b > 127 ? b - 256 : b)),
@@ -143,7 +195,7 @@ export function createGasEnv() {
         return fmt.replace('yyyy', p.year).replace('MM', p.month).replace('dd', p.day).replace('HH', p.hour).replace('mm', p.minute);
       },
     },
-    DriveApp: {},
+    DriveApp: drive,
   };
   vm.createContext(context);
   for (const file of ['Code.gs', 'Tests.gs']) vm.runInContext(readFileSync(new URL('./' + file, import.meta.url), 'utf8'), context, { filename: file });

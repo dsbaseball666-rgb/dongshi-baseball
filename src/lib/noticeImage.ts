@@ -2,6 +2,8 @@
 
 export interface ImageCell {
   text: string;
+  /** 放一張照片（例如大頭照），寬 72、高 90，照片會裁切填滿 */
+  image?: CanvasImageSource & { width: number; height: number };
   color?: string;
   bg?: string;
   bold?: boolean;
@@ -58,7 +60,7 @@ export function renderTableImage(spec: TableImageSpec): HTMLCanvasElement {
     measure.font = font(FONT_SIZE, cell.bold);
     return wrap(measure, cell.text || '—', spec.columns[j].width - CELL_PAD * 2);
   }));
-  const rowH = wrapped.map((row) => Math.max(...row.map((lines) => lines.length)) * LINE_H + CELL_PAD * 2 - 8);
+  const rowH = wrapped.map((row, i) => Math.max(...row.map((lines) => lines.length * LINE_H), spec.rows[i].some((c) => c.image) ? PHOTO_H + 4 : 0) + CELL_PAD * 2 - 8);
   const headH = 104 + (spec.subtitle ? 34 : 0);
   const summaryH = spec.summary ? 52 : 0;
   const theadH = 48;
@@ -118,6 +120,11 @@ export function renderTableImage(spec: TableImageSpec): HTMLCanvasElement {
     x = PAD;
     row.forEach((cell, j) => {
       const lines = wrapped[i][j];
+      if (cell.image) {
+        drawCover(ctx, cell.image, x + CELL_PAD, y + CELL_PAD - 4, PHOTO_W, PHOTO_H);
+        x += spec.columns[j].width;
+        return;
+      }
       ctx.font = font(FONT_SIZE, cell.bold);
       if (cell.bg && cell.text) {
         // 狀態用圓角色塊
@@ -147,6 +154,27 @@ export function renderTableImage(spec: TableImageSpec): HTMLCanvasElement {
     ctx.fillText(spec.footer, PAD, y + 18);
   }
   return canvas;
+}
+
+const PHOTO_W = 72;
+const PHOTO_H = 90;
+
+/** 照片裁切成剛好填滿方框（像 CSS 的 object-fit: cover），加上圓角 */
+function drawCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource & { width: number; height: number }, x: number, y: number, w: number, h: number) {
+  const scale = Math.max(w / img.width, h / img.height);
+  const sw = w / scale;
+  const sh = h / scale;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x + 6, y);
+  ctx.arcTo(x + w, y, x + w, y + h, 6);
+  ctx.arcTo(x + w, y + h, x, y + h, 6);
+  ctx.arcTo(x, y + h, x, y, 6);
+  ctx.arcTo(x, y, x + w, y, 6);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, x, y, w, h);
+  ctx.restore();
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

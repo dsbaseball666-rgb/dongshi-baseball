@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import type { Player, PlayerProfile } from '../../types';
 import { useTask } from '../../store/DemoStore';
-import { byNumber, useProfiles, type ProfileInput } from '../../sources/team';
+import { byNumber, usePhotos, useProfiles, type ProfileInput } from '../../sources/team';
+import { PlayerPhoto } from '../../components/PlayerPhoto';
+import { BatchPhotos, DriveImport, PhotoPicker } from './PhotoUpload';
 import { downloadCsv } from '../../lib/csv';
 import { formatDateTime, todayStr } from '../../lib/date';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingCard } from '../../components/UI';
@@ -39,7 +41,7 @@ function RelationPick({ label, value, onChange }: { label: string; value: string
   );
 }
 
-function ProfileForm({ player, profile, save, onDone }: { player: Player; profile?: PlayerProfile; save: (p: ProfileInput) => Promise<void>; onDone: () => void }) {
+function ProfileForm({ player, profile, photos, save, onDone }: { player: Player; profile?: PlayerProfile; photos: ReturnType<typeof usePhotos>; save: (p: ProfileInput) => Promise<void>; onDone: () => void }) {
   const task = useTask();
   const [f, setF] = useState<ProfileInput>(() => {
     const base: ProfileInput = { playerId: player.id, ...EMPTY };
@@ -53,7 +55,8 @@ function ProfileForm({ player, profile, save, onDone }: { player: Player; profil
   );
   return (
     <Card title={`編輯：${player.name}`} icon="✏️">
-      <p className="muted small">姓名、背號、年級、守備位置請到「教練後台 → 球員與帳號」修改。這裡的資料只有教練看得到。</p>
+      <PhotoPicker player={player} photos={photos} />
+      <p className="muted small">姓名、年級、守備位置請到「教練後台 → 球員與帳號」修改。下面的資料只有教練看得到。</p>
       <form
         className="form"
         onSubmit={async (e) => {
@@ -118,6 +121,9 @@ function ProfileForm({ player, profile, save, onDone }: { player: Player; profil
 
 export function ProfilesTab() {
   const data = useProfiles();
+  const photos = usePhotos();
+  const [batch, setBatch] = useState(false);
+  const [driveImport, setDriveImport] = useState(false);
   const [filter, setFilter] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -154,14 +160,24 @@ export function ProfilesTab() {
     <>
       <Alert kind="info">🔒 通訊錄與個人資料<strong>只有教練看得到</strong>，球員、家長、老師都看不到。下載的檔案也請妥善保管。</Alert>
       {data.error && <Alert kind="error">{data.error}</Alert>}
-      {editingPlayer && <ProfileForm key={editingPlayer.id} player={editingPlayer} profile={profileOf[editingPlayer.id]} save={data.save} onDone={() => setEditing(null)} />}
+      {editingPlayer && <ProfileForm key={editingPlayer.id} player={editingPlayer} profile={profileOf[editingPlayer.id]} photos={photos} save={data.save} onDone={() => setEditing(null)} />}
+      {driveImport && <DriveImport players={data.players.filter((p) => p.active).sort(byNumber)} photos={photos} onClose={() => setDriveImport(false)} />}
+      {batch && <BatchPhotos players={data.players.filter((p) => p.active).sort(byNumber)} photos={photos} onClose={() => setBatch(false)} />}
       <Card
         title={`球員名單（${list.length} 位）`}
         icon="👥"
         actions={
-          <button type="button" className="btn btn-sm" onClick={exportCsv} disabled={data.players.length === 0}>
-            ⬇️ 下載通訊錄（Excel 可開）
-          </button>
+          <span className="form-actions">
+            <button type="button" className="btn btn-sm" onClick={() => setDriveImport(true)} disabled={driveImport}>
+              ☁️ 從雲端資料夾匯入大頭照
+            </button>
+            <button type="button" className="btn btn-sm" onClick={() => setBatch(true)} disabled={batch}>
+              📷 一次上傳很多張大頭照
+            </button>
+            <button type="button" className="btn btn-sm" onClick={exportCsv} disabled={data.players.length === 0}>
+              ⬇️ 下載通訊錄（Excel 可開）
+            </button>
+          </span>
         }
       >
         <p className="muted small">
@@ -181,7 +197,7 @@ export function ProfilesTab() {
             <table>
               <thead>
                 <tr>
-                  <th>背號</th>
+                  <th>照片</th>
                   <th>姓名</th>
                   <th>年級／班級</th>
                   <th>位置／投打</th>
@@ -196,7 +212,9 @@ export function ProfilesTab() {
                   const x = profileOf[p.id];
                   return (
                     <tr key={p.id} className={p.active ? '' : 'row-off'}>
-                      <td>{p.number || '—'}</td>
+                      <td>
+                        <PlayerPhoto url={photos.photos[p.id]} name={p.name} size={36} />
+                      </td>
                       <td className="nowrap">
                         <strong>{p.name}</strong>
                         {!p.active && <Badge tone="gray">離隊</Badge>}

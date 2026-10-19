@@ -220,3 +220,33 @@ export function participantText(ids: string[], names: Record<string, string>, ma
 export const JERSEY_NUMBERS = ['0', '00', ...Array.from({ length: 99 }, (_, i) => String(i + 1))];
 /** 號碼排序：0、00、1、2…99 */
 export const jerseyOrder = (no: string) => (no === '00' ? 0.5 : Number(no));
+
+/* ───────── 球員大頭照（全隊看得到，教練可以更換） ───────── */
+
+export function usePhotos(enabled = true) {
+  const { mode, api } = useStore();
+  const q = useCloudQuery<Record<string, string>>(mode === 'cloud' && enabled, 'photos', () => api<{ photos: Record<string, string> }>('listPhotos', {}, '讀取大頭照').then((r) => r.photos), {});
+  const savePhoto = useCallback(
+    async (playerId: string, image: string) => {
+      const r = await api<{ playerId: string; photo: string }>('savePhoto', { playerId, image }, '上傳大頭照');
+      q.setState((st) => ({ ...st, data: { ...st.data, [r.playerId]: r.photo } }));
+    },
+    [api, q.setState],
+  );
+  const deletePhoto = useCallback(
+    async (playerId: string) => {
+      await api('deletePhoto', { playerId }, '刪除大頭照');
+      q.setState((st) => {
+        const data = { ...st.data };
+        delete data[playerId];
+        return { ...st, data };
+      });
+    },
+    [api, q.setState],
+  );
+  // 從雲端硬碟資料夾匯入用
+  const listSources = useCallback(() => api<{ folders: { id: string; name: string }[] }>('listPhotoSources', {}, '讀取雲端資料夾').then((r) => r.folders), [api]);
+  const listFolder = useCallback((folderId: string) => api<{ files: { id: string; name: string }[] }>('listPhotoFolder', { folderId }, '讀取資料夾裡的照片').then((r) => r.files), [api]);
+  const getFile = useCallback((folderId: string, fileId: string) => api<{ image: string }>('getPhotoFile', { folderId, fileId }, '讀取照片').then((r) => r.image), [api]);
+  return { photos: q.state.data, loading: q.state.loading, error: q.state.error, savePhoto, deletePhoto, listSources, listFolder, getFile };
+}

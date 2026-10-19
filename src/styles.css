@@ -704,3 +704,14 @@ td.strong { font-weight: 700; }
 .jersey-name { min-width: 0; }
 .roster-chip { display: inline-flex; align-items: center; gap: 4px; }
 .jersey-no { display: inline-block; min-width: 24px; padding: 0 4px; text-align: center; font-weight: 800; color: #fff; background: var(--ink); border-radius: 4px; }
+
+/* 球員大頭照（5.8.5） */
+.player-photo { display: inline-block; object-fit: cover; border: 2px solid var(--line); border-radius: var(--radius); background: #fff; vertical-align: middle; }
+.player-photo.empty { display: inline-grid; place-items: center; color: var(--ink-soft); background: #eef0f5; border-style: dashed; font-weight: 700; }
+.photo-picker { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 10px; padding: 10px; background: #f7f8fb; border-radius: var(--radius); }
+.photo-picker .form { gap: 6px; }
+.batch-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 8px 0; }
+.batch-item { display: flex; flex-direction: column; gap: 4px; padding: 6px; background: #fff; border: 2px solid var(--grass); border-radius: var(--radius); }
+.batch-item.unmatched { border-color: var(--red); border-style: dashed; }
+.batch-item img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 4px; }
+.batch-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

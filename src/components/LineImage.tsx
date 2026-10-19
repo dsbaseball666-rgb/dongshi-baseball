@@ -3,7 +3,7 @@ import { canShareFiles, canvasToBlob, downloadBlob, shareOrDownload } from '../l
 import { Alert } from './UI';
 
 /** 「產生 LINE 圖片」按鈕：按下去先預覽，再分享（手機）或下載（電腦） */
-export function LineImageButton({ make, filename, title, label = '🖼️ 產生 LINE 圖片', disabled }: { make: () => HTMLCanvasElement; filename: string; title: string; label?: string; disabled?: boolean }) {
+export function LineImageButton({ make, filename, title, label = '🖼️ 產生 LINE 圖片', disabled }: { make: () => HTMLCanvasElement | Promise<HTMLCanvasElement>; filename: string; title: string; label?: string; disabled?: boolean }) {
   const [img, setImg] = useState<{ blob: Blob; url: string } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +20,7 @@ export function LineImageButton({ make, filename, title, label = '🖼️ 產生
     setError(null);
     setMsg(null);
     try {
-      const blob = await canvasToBlob(make());
+      const blob = await canvasToBlob(await make());
       setImg({ blob, url: URL.createObjectURL(blob) });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

@@ -592,6 +592,31 @@ function runSelfTests() {
       call('saveProfile', { playerId: 'TEST-PA', guardianName: '測試家長二', height: '166' }, tCoach, Utilities.getUuid());
       results.push([readAll_('PlayerProfiles').filter((x) => x.playerId === 'TEST-PA').length === 1, '再次儲存個人資料會更新同一列，不會重複', '']);
       expectFail('身高格式錯誤會被拒絕', call('saveProfile', { playerId: 'TEST-PA', height: 'abc' }, tCoach), 'INVALID');
+      // 大頭照
+      const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+      const ph = call('savePhoto', { playerId: 'TEST-PA', image: png }, tCoach, Utilities.getUuid());
+      const seePh = call('listPhotos', {}, tB);
+      results.push([ph.ok && seePh.ok && seePh.data.photos['TEST-PA'] === png, '教練可以上傳大頭照，其他球員也看得到', ph.ok ? (seePh.ok ? '' : seePh.error) : ph.error]);
+      expectFail('不是圖片的檔案不能當大頭照', call('savePhoto', { playerId: 'TEST-PA', image: 'data:text/html;base64,PGI+' }, tCoach), 'INVALID');
+      call('saveProfile', { playerId: 'TEST-PA', guardianName: '測試家長三' }, tCoach, Utilities.getUuid());
+      results.push([call('listPhotos', {}, tCoach).data.photos['TEST-PA'] === png, '修改個人資料後，大頭照還在', '']);
+      // 從雲端硬碟資料夾匯入（測試資料夾用完就移到垃圾桶）
+      const srcFolder = DriveApp.createFolder('自動測試大頭照_TEST-');
+      const srcFile = srcFolder.createFile(Utilities.newBlob(Utilities.base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), 'image/png', '測試球員(國三)_TEST-.png'));
+      try {
+        const srcList = call('listPhotoSources', {}, tCoach);
+        results.push([srcList.ok && srcList.data.folders.some((f) => f.id === srcFolder.getId()), '可以列出名稱有「大頭照」的資料夾', srcList.ok ? '' : srcList.error]);
+        const inFolder = call('listPhotoFolder', { folderId: srcFolder.getId() }, tCoach);
+        results.push([inFolder.ok && inFolder.data.files.length === 1 && inFolder.data.files[0].name.indexOf('測試球員') === 0, '可以列出資料夾裡的照片', inFolder.ok ? '' : inFolder.error]);
+        const got = call('getPhotoFile', { folderId: srcFolder.getId(), fileId: srcFile.getId() }, tCoach);
+        results.push([got.ok && got.data.image === png, '可以讀取資料夾裡的照片原圖', got.ok ? '' : got.error]);
+        expectFail('不在選定資料夾裡的檔案不能讀', call('getPhotoFile', { folderId: srcFolder.getId(), fileId: readAll_('PlayerProfiles').find((x) => x.playerId === 'TEST-PA').photoId }, tCoach), 'FORBIDDEN');
+      } finally {
+        srcFile.setTrashed(true);
+        srcFolder.setTrashed(true);
+      }
+      const delPh = call('deletePhoto', { playerId: 'TEST-PA' }, tCoach, Utilities.getUuid());
+      results.push([delPh.ok && !call('listPhotos', {}, tCoach).data.photos['TEST-PA'], '教練可以刪除大頭照', delPh.ok ? '' : delPh.error]);
       expectFail('生日格式錯誤會被拒絕', call('saveProfile', { playerId: 'TEST-PA', birthday: '2012/13/40' }, tCoach), 'INVALID');
       expectFail('家長關係只能選母、父、隔代、其他', call('saveProfile', { playerId: 'TEST-PA', guardianRelation: '舅舅' }, tCoach), 'INVALID');
       expectFail('生日填成民國年（0101 年）會被拒絕', call('saveProfile', { playerId: 'TEST-PA', birthday: '0101-01-25' }, tCoach), 'INVALID');
@@ -714,6 +739,15 @@ const TEST_LOG_SHEET = '自動測試結果';
 const TEST_LOGIN_PATTERN = /^test-(coach|pa|pb|pc|pd|parent|teacher|office|reg)-\d{10,}$/;
 
 function cleanupTestData_(created) {
+  // 測試上傳的大頭照（檔名有 _TEST-）移到垃圾桶
+  const folders = DriveApp.getFoldersByName(PHOTO_FOLDER_NAME);
+  while (folders.hasNext()) {
+    const files = folders.next().getFiles();
+    while (files.hasNext()) {
+      const f = files.next();
+      if (f.getName().indexOf('_TEST-') >= 0 && !f.isTrashed()) f.setTrashed(true);
+    }
+  }
   const testUsers = created.users.concat(readAll_('Users').filter((u) => TEST_LOGIN_PATTERN.test(u.loginId)).map((u) => u.id));
   const ids = testUsers.concat(created.players, created.articles, created.announcements);
   const isTestTitle = (r) => (r.title === '測試文章' && r.summary === '摘要') || (r.title === '測試公告' && r.body === '內容');

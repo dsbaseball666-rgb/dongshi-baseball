@@ -69,6 +69,14 @@ TEST_ACCOUNTS.forEach((a, i) => {
   gas.appendRow_('Players', { id: 'P1' + String(i).padStart(2, '0'), name, number, grade, position, active: 'TRUE', createdAt: now, updatedAt: now });
 });
 
+// 假的「大頭照」資料夾（1 像素的色塊圖片，不是真人照片），用來測試「從雲端資料夾匯入」
+{
+  const px = (b64) => gas.Utilities.base64Decode(b64);
+  const RED = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const folder = gas.DriveApp.createFolder('05 球員大頭照（測試）');
+  ['陳小投(國三).png', '林小捕(國三).png', '王左外(國一).png', '不認識(國二).png'].forEach((name) => folder.createFile(gas.Utilities.newBlob(px(RED), 'image/png', name)));
+}
+
 http
   .createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');

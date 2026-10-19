@@ -1,6 +1,7 @@
 import type { AttendanceStatus, PracticeDay, Player, Tournament } from '../../types';
 import { addDays, formatDateTime, nowIso } from '../../lib/date';
 import { renderTableImage, type ImageCell } from '../../lib/noticeImage';
+import { loadImage } from '../../lib/photo';
 import { ATTENDANCE_STATUSES, jerseyOrder, PRACTICE_ICONS, participantText, PRESENT_STATUSES, shortDate, type PlanInput } from '../../sources/team';
 
 const TYPE_COLORS: Record<string, { color: string; bg: string; row?: string }> = {
@@ -128,7 +129,7 @@ export function planImage(monday: string, sessions: PlanInput[], names: Record<s
 }
 
 /** 賽事的球員號碼名單圖片（依號碼排，沒號碼的放最後） */
-export function jerseyImage(t: Tournament, players: Player[], names: Record<string, string>): HTMLCanvasElement {
+export async function jerseyImage(t: Tournament, players: Player[], names: Record<string, string>, photos: Record<string, string> = {}): Promise<HTMLCanvasElement> {
   const byId = Object.fromEntries(players.map((p) => [p.id, p]));
   const ids = t.playerIds.slice().sort((a, b) => {
     const na = t.jerseys[a], nb = t.jerseys[b];
@@ -136,12 +137,17 @@ export function jerseyImage(t: Tournament, players: Player[], names: Record<stri
     return na ? -1 : nb ? 1 : 0;
   });
   const dates = t.endDate && t.endDate !== t.startDate ? `${shortDate(t.startDate)}～${shortDate(t.endDate)}` : shortDate(t.startDate);
+  // 先把大頭照載入（讀不出來的就不放）
+  const imgs: Record<string, HTMLImageElement> = {};
+  await Promise.all(ids.filter((id) => photos[id]).map((id) => loadImage(photos[id]).then((img) => (imgs[id] = img)).catch(() => undefined)));
+  const withPhotos = Object.keys(imgs).length > 0;
   return renderTableImage({
     title: '👕 球員號碼名單',
     subtitle: t.name,
     summary: [dates, t.location && `📍${t.location}`, `共 ${ids.length} 人`].filter(Boolean).join('｜'),
     columns: [
       { label: '號碼', width: 110 },
+      ...(withPhotos ? [{ label: '照片', width: 100 }] : []),
       { label: '姓名', width: 220 },
       { label: '年級', width: 130 },
       { label: '守備位置', width: 260 },
@@ -151,6 +157,7 @@ export function jerseyImage(t: Tournament, players: Player[], names: Record<stri
       const no = t.jerseys[id];
       return [
         no ? { text: no, bold: true, color: '#ffffff', bg: '#23263a' } : { text: '未編號', color: '#9aa0b4' },
+        ...(withPhotos ? [imgs[id] ? { text: '', image: imgs[id] } : { text: '' }] : []),
         { text: names[id] ?? p?.name ?? '', bold: true },
         { text: p?.grade ?? '' },
         { text: p?.position ?? '' },
