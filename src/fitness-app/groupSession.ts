@@ -1,5 +1,6 @@
 import type { FitnessItemKey } from '../types';
 import { getFitnessItem, valueToInput } from '../lib/fitness';
+import { average, MAX_ATTEMPTS } from './attempts';
 
 // 團體檢測：一組球員一起測。跑步項目用碼表（同一聲起跑，誰到終點就按誰），其他項目逐一輸入。
 // 整個過程存在這台手機的瀏覽器裡，不小心重新整理或關掉畫面，碼表和成績都還在。
@@ -20,6 +21,8 @@ export interface GroupSession {
   tapLog: string[];
   /** 跑道一圈幾公尺；0 代表只按終點、不記圈 */
   trackLength: number;
+  /** 揮棒速度、投球球速：每位球員每一次的數值（成績＝平均）；舊版存下來的進度沒有這個欄位 */
+  attempts?: Record<string, number[]>;
 }
 
 export const STORAGE_KEY = 'dongshi-fitness-group-session';
@@ -82,9 +85,11 @@ export function nextHeat(s: GroupSession): GroupSession {
 export function clearPlayer(s: GroupSession, playerId: string): GroupSession {
   const values = { ...s.values };
   delete values[playerId];
+  const attempts = { ...s.attempts };
+  delete attempts[playerId];
   const taps = { ...s.taps };
   delete taps[playerId];
-  return { ...s, values, taps, tapLog: s.tapLog.filter((p) => p !== playerId) };
+  return { ...s, values, taps, attempts, tapLog: s.tapLog.filter((p) => p !== playerId) };
 }
 
 /** 完成名次：依完成時間排序 */
@@ -118,4 +123,24 @@ export function saveSession(s: GroupSession | null): void {
   } catch {
     /* 無痕模式等情況存不了，仍然可以用，只是重新整理後會不見 */
   }
+}
+
+/** 設定某位球員的多次數值，成績自動換成平均；清空時成績也清掉 */
+function setAttempts(s: GroupSession, playerId: string, list: number[]): GroupSession {
+  const values = { ...s.values };
+  if (list.length) values[playerId] = String(average(list));
+  else delete values[playerId];
+  return { ...s, values, attempts: { ...s.attempts, [playerId]: list } };
+}
+
+/** 加入一次數值（已經 10 次就不再加） */
+export function addAttempt(s: GroupSession, playerId: string, value: number): GroupSession {
+  const list = s.attempts?.[playerId] ?? [];
+  if (list.length >= MAX_ATTEMPTS) return s;
+  return setAttempts(s, playerId, [...list, value]);
+}
+
+/** 刪掉第 index 次（輸錯時用） */
+export function removeAttempt(s: GroupSession, playerId: string, index: number): GroupSession {
+  return setAttempts(s, playerId, (s.attempts?.[playerId] ?? []).filter((_, i) => i !== index));
 }

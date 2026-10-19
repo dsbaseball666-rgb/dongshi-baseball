@@ -136,6 +136,13 @@ function runSelfTests() {
     expectFail('整隊輸入：不能修改別的球員的紀錄', call('saveFitnessBatch', { date: today, item: 'grip', entries: [{ playerId: 'TEST-PB', value: 30, id: gripA ? gripA.id : 'x' }] }, tCoach, Utilities.getUuid()), 'NOT_FOUND');
     expectFail('球員不能整隊輸入體能檢測', call('saveFitnessBatch', { date: today, item: 'grip', entries: [{ playerId: 'TEST-PA', value: 99 }] }, tA, Utilities.getUuid()), 'FORBIDDEN');
     expectFail('球員不能讀全隊體能紀錄', call('listTeamFitness', {}, tA), 'FORBIDDEN');
+    // 揮棒速度：存平均值，每個人有自己的備註（10 次明細）
+    const fb3 = call('saveFitnessBatch', { date: today, item: 'swing', note: '共用', entries: [{ playerId: 'TEST-PA', value: 96.2, note: '3 次平均（最高 97）：95、96.5、97' }, { playerId: 'TEST-PB', value: 90 }] }, tCoach, Utilities.getUuid());
+    const swings = fb3.ok ? fb3.data.records : [];
+    const swA = swings.find((f) => f.playerId === 'TEST-PA');
+    const swB = swings.find((f) => f.playerId === 'TEST-PB');
+    results.push([fb3.ok && !!swA && swA.value === 96.2 && swA.note.indexOf('3 次平均') === 0 && !!swB && swB.note === '共用', '整隊輸入：每位球員可以有自己的備註（揮棒速度多次明細），沒有就用共用備註', fb3.ok ? '' : fb3.error]);
+    expectFail('整隊輸入：個人備註超過 200 字會被拒絕', call('saveFitnessBatch', { date: today, item: 'swing', entries: [{ playerId: 'TEST-PA', value: 90, note: 'x'.repeat(201) }] }, tCoach, Utilities.getUuid()), 'INVALID');
 
     // 5. 名單與管理權限
     const plA = call('listPlayers', {}, tA).data.players;

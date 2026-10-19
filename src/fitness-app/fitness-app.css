@@ -132,3 +132,17 @@ kbd { font-family: inherit; font-size: 0.8rem; padding: 0 5px; border: 2px solid
   .fs-row-actions { white-space: normal; }
   .fs-row-actions .btn { display: flex; width: 100%; margin: 3px 0; }
 }
+
+/* 揮棒速度、投球球速：多次輸入 */
+.fs-input-wide { width: 220px; }
+.fs-avg { margin-top: 2px; font-size: 0.85rem; font-weight: 700; color: var(--blue); }
+@media (max-width: 560px) {
+  .fs-input-wide { width: 120px; }
+  .fs-batch th, .fs-batch td { padding-left: 4px; padding-right: 4px; }
+}
+.gt-add { min-width: 72px; min-height: 52px; }
+.gt-attempts { display: flex; flex-wrap: wrap; gap: 4px; }
+.gt-attempt { font: inherit; font-size: 0.9rem; font-weight: 700; color: var(--ink); cursor: pointer; display: inline-flex; align-items: baseline; gap: 3px; min-height: 34px; padding: 3px 8px; background: #fff; border: 2px solid #c3c8d6; border-radius: 16px; }
+.gt-attempt small { font-size: 0.7rem; color: var(--ink-soft); }
+.gt-avg { font-size: 0.95rem; }
+.gt-avg b { font-size: 1.2rem; color: #1b5e20; }

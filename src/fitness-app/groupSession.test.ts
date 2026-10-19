@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type GroupSession, clearPlayer, clock, finishOrder, isFinished, newSession, nextHeat, secondsToInput, tap, tapsNeeded, undoTap } from './groupSession';
+import { type GroupSession, addAttempt, clearPlayer, clock, finishOrder, isFinished, newSession, nextHeat, removeAttempt, secondsToInput, tap, tapsNeeded, undoTap } from './groupSession';
 import { parseFitnessInput } from '../lib/fitness';
 
 const T0 = 1_000_000;
@@ -72,5 +72,33 @@ describe('團體檢測碼表', () => {
     expect(clock(385.299)).toBe('6:25.29');
     expect(secondsToInput('run150', 9.999)).toBe('10.00');
     expect(secondsToInput('run1500', 59.5)).toBe('59.50');
+  });
+});
+
+describe('團體檢測：揮棒速度、投球球速多次平均', () => {
+  it('每加一次，成績就換成平均；最多 10 次', () => {
+    let s: GroupSession = newSession('2026-10-19', 'swing', ['A']);
+    s = addAttempt(s, 'A', 95);
+    expect(s.values.A).toBe('95');
+    s = addAttempt(s, 'A', 96.5);
+    s = addAttempt(s, 'A', 97);
+    expect(s.attempts?.A).toEqual([95, 96.5, 97]);
+    expect(s.values.A).toBe('96.2');
+    for (let i = 0; i < 10; i++) s = addAttempt(s, 'A', 90);
+    expect(s.attempts?.A.length).toBe(10);
+  });
+
+  it('刪掉輸錯的那一次會重新算平均；全部刪掉成績也清掉', () => {
+    let s: GroupSession = addAttempt(addAttempt(newSession('2026-10-19', 'pitch', ['A']), 'A', 80), 'A', 100);
+    s = removeAttempt(s, 'A', 1);
+    expect(s.values.A).toBe('80');
+    s = removeAttempt(s, 'A', 0);
+    expect(isFinished(s, 'A')).toBe(false);
+  });
+
+  it('重測會連多次數值一起清掉', () => {
+    const s = clearPlayer(addAttempt(newSession('2026-10-19', 'swing', ['A']), 'A', 95), 'A');
+    expect(s.attempts?.A).toBeUndefined();
+    expect(isFinished(s, 'A')).toBe(false);
   });
 });

@@ -8,8 +8,8 @@ export interface BatchInput {
   date: string;
   item: FitnessItemKey;
   note: string;
-  /** 有 id 代表修改那一筆（當天已經輸入過），沒有 id 就新增 */
-  entries: { playerId: string; value: number; id?: string }[];
+  /** 有 id 代表修改那一筆（當天已經輸入過），沒有 id 就新增；note 是這一位球員自己的備註（例如揮棒速度 10 次明細），沒有就用整批共用的 note */
+  entries: { playerId: string; value: number; id?: string; note?: string }[];
 }
 
 const upsert = (list: FitnessTest[], recs: FitnessTest[]) => {
@@ -42,7 +42,7 @@ export function useTeamFitness() {
       if (!cloud) {
         await perform('整隊輸入體能檢測', (d) =>
           input.entries.reduce((acc, e) => {
-            const fi: FitnessInput = { playerId: e.playerId, date: input.date, item: input.item, value: e.value, note: input.note };
+            const fi: FitnessInput = { playerId: e.playerId, date: input.date, item: input.item, value: e.value, note: e.note ?? input.note };
             return e.id ? updateFitness(acc, user, e.id, fi) : addFitness(acc, user, fi);
           }, d),
         );

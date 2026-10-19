@@ -5,7 +5,9 @@ import { todayStr } from '../lib/date';
 import { FITNESS_ITEMS, getFitnessItem, parseFitnessInput } from '../lib/fitness';
 import { ActionFeedback, Alert, Card, EmptyState, Field } from '../components/UI';
 import { sortRecords } from './stats';
+import { attemptsNote, average, MAX_ATTEMPTS, usesAttempts } from './attempts';
 import {
+  addAttempt,
   clearPlayer,
   clock,
   elapsed,
@@ -15,6 +17,7 @@ import {
   loadSession,
   newSession,
   nextHeat,
+  removeAttempt,
   saveSession,
   tap,
   tapsNeeded,
@@ -26,6 +29,65 @@ import type { TeamFitness } from './useTeamFitness';
 
 const ITEM_ICONS: Record<FitnessItemKey, string> = { pushup: '💪', situp: '🧘', jump: '🦘', run1500: '🏃', run150: '⚡', grip: '✊', swing: '🏏', pitch: '⚾' };
 const playerLabel = (p: Player | undefined) => (p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : '（已刪除）');
+
+/** 揮棒速度、投球球速：一位球員一張卡片，每測一次輸入一次，最多 10 次，成績＝平均 */
+function AttemptCard({ item, label, list, error, onAdd, onRemove }: { item: FitnessItemKey; label: string; list: number[]; error?: string; onAdd: (v: number) => void; onRemove: (i: number) => void }) {
+  const [raw, setRaw] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const def = getFitnessItem(item);
+  const full = list.length >= MAX_ATTEMPTS;
+  const add = () => {
+    if (!raw.trim()) return;
+    try {
+      onAdd(parseFitnessInput(item, raw));
+      setRaw('');
+      setMsg(null);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <div className={`gt-count ${list.length ? 'done' : ''}`}>
+      <span className="gt-runner-name">{label}</span>
+      <div className="gt-count-row">
+        <input
+          className="gt-count-input"
+          value={raw}
+          inputMode="decimal"
+          disabled={full}
+          placeholder={full ? `已滿 ${MAX_ATTEMPTS} 次` : `第 ${list.length + 1} 次（${def.unit}）`}
+          aria-label={`${label}的${def.label}第 ${list.length + 1} 次`}
+          onChange={(e) => setRaw(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+        <button type="button" className="btn btn-primary gt-add" onClick={add} disabled={full || !raw.trim()}>
+          加入
+        </button>
+      </div>
+      {list.length > 0 && (
+        <>
+          <div className="gt-attempts">
+            {list.map((v, i) => (
+              <button key={i} type="button" className="gt-attempt" title="刪掉這一次" onClick={() => window.confirm(`刪掉第 ${i + 1} 次（${v} ${def.unit}）？`) && onRemove(i)}>
+                <small>{i + 1}</small>
+                {v} ✕
+              </button>
+            ))}
+          </div>
+          <div className="gt-avg">
+            {list.length} / {MAX_ATTEMPTS} 次｜平均 <b>{average(list)}</b> {def.unit}｜最高 {Math.max(...list)}
+          </div>
+        </>
+      )}
+      {(msg || error) && <div className="fs-error">{msg ?? error}</div>}
+    </div>
+  );
+}
 
 /** 團體檢測：選一組球員一起測；1500／150 公尺用碼表按終點 */
 export function GroupTab({ players, source }: { players: Player[]; source: TeamFitness }) {
@@ -77,6 +139,7 @@ function Setup({ players, onStart, savedMsg }: { players: Player[]; onStart: (s:
               <span aria-hidden>{ITEM_ICONS[d.key]}</span>
               {d.label}
               {d.kind === 'time' && <small>⏱️ 碼表</small>}
+              {usesAttempts(d.key) && <small>🔟 {MAX_ATTEMPTS} 次平均</small>}
             </button>
           ))}
         </div>
@@ -210,10 +273,11 @@ function Run({ players, source, session, update, onQuit }: { players: Player[]; 
 
   const submit = async () => {
     const errs: Record<string, string> = {};
-    const entries: { playerId: string; value: number; id?: string }[] = [];
+    const entries: { playerId: string; value: number; id?: string; note?: string }[] = [];
     for (const pid of done) {
       try {
-        entries.push({ playerId: pid, value: parseFitnessInput(session.item, session.values[pid]), id: existing[pid] });
+        const list = session.attempts?.[pid] ?? [];
+        entries.push({ playerId: pid, value: parseFitnessInput(session.item, session.values[pid]), id: existing[pid], note: list.length > 1 ? attemptsNote(list, '團體檢測') : undefined });
       } catch (e) {
         errs[pid] = e instanceof Error ? e.message : String(e);
       }
@@ -320,6 +384,19 @@ function Run({ players, source, session, update, onQuit }: { players: Player[]; 
       ) : (
         <div className="gt-counts">
           {group.map((id) => {
+            if (usesAttempts(session.item)) {
+              return (
+                <AttemptCard
+                  key={id}
+                  item={session.item}
+                  label={playerLabel(byId.get(id))}
+                  list={session.attempts?.[id] ?? []}
+                  error={errors[id]}
+                  onAdd={(v) => update((s) => addAttempt(s, id, v))}
+                  onRemove={(i) => update((s) => removeAttempt(s, id, i))}
+                />
+              );
+            }
             const v = session.values[id] ?? '';
             const n = Number(v);
             const step = (d: number) => setValue(id, String(Math.max(0, (Number.isFinite(n) && v !== '' ? n : 0) + d)));

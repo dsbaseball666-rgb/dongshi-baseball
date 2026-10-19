@@ -6,6 +6,7 @@ import { FITNESS_ITEMS, getFitnessItem, parseFitnessInput, valueToInput } from '
 import { ActionFeedback, Alert, Badge, Card, EmptyState, Field } from '../components/UI';
 import { diffText, shortValue, sortRecords } from './stats';
 import type { TeamFitness } from './useTeamFitness';
+import { attemptsNote, average, MAX_ATTEMPTS, parseAttempts, usesAttempts } from './attempts';
 
 interface Row {
   player: Player;
@@ -26,6 +27,13 @@ export function BatchTab({ players, source }: { players: Player[]; source: TeamF
   const [errors, setErrors] = useState<Record<string, string>>({});
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
   const def = getFitnessItem(item);
+  const multi = usesAttempts(item);
+  // 揮棒速度、投球球速：一格可以輸入多次（空白隔開），存平均值，每一次寫在備註
+  const toEntry = (raw: string): { value: number; note?: string; count: number } => {
+    if (!multi) return { value: parseFitnessInput(item, raw), count: 1 };
+    const list = parseAttempts(item, raw);
+    return list.length > 1 ? { value: average(list), note: attemptsNote(list, note), count: list.length } : { value: list[0], count: 1 };
+  };
 
   const rows = useMemo<Row[]>(() => {
     const sorted = sortRecords(source.records.filter((r) => r.item === item));
@@ -53,10 +61,11 @@ export function BatchTab({ players, source }: { players: Player[]; source: TeamF
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs: Record<string, string> = {};
-    const entries: { playerId: string; value: number; id?: string }[] = [];
+    const entries: { playerId: string; value: number; id?: string; note?: string }[] = [];
     for (const r of changed) {
       try {
-        entries.push({ playerId: r.player.id, value: parseFitnessInput(item, drafts[r.player.id]), id: r.existing?.id });
+        const { value, note: own } = toEntry(drafts[r.player.id]);
+        entries.push({ playerId: r.player.id, value, id: r.existing?.id, note: own });
       } catch (err) {
         errs[r.player.id] = err instanceof Error ? err.message : String(err);
       }
@@ -109,7 +118,7 @@ export function BatchTab({ players, source }: { players: Player[]; source: TeamF
           </Field>
         </div>
         <p className="muted small">
-          輸入方式：{def.inputHint}。輸入完按 <kbd>Enter</kbd> 會跳到下一位。空白的格子不會儲存（沒來的球員留白就好）。
+          輸入方式：{multi ? `每位球員可以輸入最多 ${MAX_ATTEMPTS} 次，用空白隔開（例如 95 96.5 97），會自動算平均存起來，每一次的數值記在備註` : def.inputHint}。輸入完按 <kbd>Enter</kbd> 會跳到下一位。空白的格子不會儲存（沒來的球員留白就好）。
         </p>
       </Card>
 
@@ -132,9 +141,12 @@ export function BatchTab({ players, source }: { players: Player[]; source: TeamF
                 {rows.map((r, i) => {
                   const v = shownValue(r);
                   let preview: string | null = null;
-                  if (r.before && v.trim()) {
+                  let avgText: string | null = null;
+                  if (v.trim()) {
                     try {
-                      preview = diffText(item, r.before.value, parseFitnessInput(item, v));
+                      const en = toEntry(v);
+                      if (en.count > 1) avgText = `平均 ${en.value}（${en.count} 次）`;
+                      if (r.before) preview = diffText(item, r.before.value, en.value);
                     } catch {
                       preview = null;
                     }
@@ -151,11 +163,11 @@ export function BatchTab({ players, source }: { players: Player[]; source: TeamF
                       <td>
                         <input
                           ref={(el) => (inputs.current[i] = el)}
-                          className={`fs-input ${err ? 'fs-input-error' : ''}`}
+                          className={`fs-input ${multi ? 'fs-input-wide' : ''} ${err ? 'fs-input-error' : ''}`}
                           value={v}
                           inputMode="decimal"
                           aria-label={`${r.player.name}的${def.label}成績`}
-                          placeholder={def.kind === 'time' ? (def.min >= 60 ? '6:45' : '22.5') : ''}
+                          placeholder={multi ? '95 96.5 97…' : def.kind === 'time' ? (def.min >= 60 ? '6:45' : '22.5') : ''}
                           onChange={(e) => setDrafts((d) => ({ ...d, [r.player.id]: e.target.value }))}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
@@ -166,6 +178,7 @@ export function BatchTab({ players, source }: { players: Player[]; source: TeamF
                         />
                         {r.existing && !isChanged && <Badge tone="green">已輸入</Badge>}
                         {r.existing && isChanged && <Badge tone="yellow">修改</Badge>}
+                        {avgText && <div className="fs-avg">{avgText}</div>}
                         {err && <div className="fs-error">{err}</div>}
                       </td>
                       <td className="nowrap">{preview ?? <span className="muted">—</span>}</td>

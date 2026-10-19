@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.8.1';
+const API_VERSION = '5.8.2';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -570,7 +570,7 @@ function deleteFitness_(ctx) {
 
 /**
  * 整隊一次輸入同一天、同一個項目的成績。
- * entries：[{ playerId, value, id? }]；有 id 代表修改那一筆（例如當天已經輸入過），沒有 id 就新增。
+ * entries：[{ playerId, value, id?, note? }]；有 id 代表修改那一筆（例如當天已經輸入過），沒有 id 就新增。
  * 全部先檢查，有任何一筆不合格就整批不寫入。
  */
 function saveFitnessBatch_(ctx) {
@@ -595,7 +595,8 @@ function saveFitnessBatch_(ctx) {
     seen[playerId] = true;
     let v;
     try {
-      v = validFitness_({ item: p.item, date: p.date, value: e.value, note: p.note });
+      // 每一筆可以有自己的備註（例如揮棒速度 10 次的明細）；沒有就用整批共用的備註
+      v = validFitness_({ item: p.item, date: p.date, value: e.value, note: typeof e.note === 'string' ? e.note : p.note });
     } catch (err) {
       if (err.apiCode) err.message = player.name + '：' + err.message;
       throw err;
