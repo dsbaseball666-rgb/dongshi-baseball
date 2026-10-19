@@ -597,6 +597,10 @@ export interface Game {
   ourScore: number | null;
   oppScore: number | null;
   note: string;
+  /** 集合時間、集合地點、出發時間（給家長的行前通知） */
+  meetTime: string;
+  meetPlace: string;
+  departTime: string;
 }
 
 /** 5.8 教練練球安排：一個時段（playerIds 空白＝全隊） */

@@ -6,7 +6,7 @@ import { byNumber, gameResult, jerseyOrder, usePhotos, money, shortDate, TOURNAM
 import { todayStr } from '../../lib/date';
 import { LineImageButton } from '../../components/LineImage';
 import { JerseyEditor } from './JerseyEditor';
-import { jerseyImage } from './images';
+import { jerseyImage, parentNoticeImage } from './images';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingCard } from '../../components/UI';
 
 type Data = ReturnType<typeof useTournaments>;
@@ -118,11 +118,17 @@ function TournamentForm({ data, editing, onDone }: { data: Data; editing: Tourna
 
 function GameForm({ data, t, editing, onDone }: { data: Data; t: Tournament; editing: Game | null; onDone: () => void }) {
   const task = useTask();
-  const [f, setF] = useState<GameInput>(
-    editing
-      ? { ...editing, ourScore: editing.ourScore === null ? '' : String(editing.ourScore), oppScore: editing.oppScore === null ? '' : String(editing.oppScore) }
-      : { tournamentId: t.id, date: todayStr() >= t.startDate && todayStr() <= t.endDate ? todayStr() : t.startDate, time: '', opponent: '', location: t.location, side: '', ourScore: '', oppScore: '', note: '' },
-  );
+  const sameDay = (date: string) => {
+    const g = data.games.filter((x) => x.tournamentId === t.id && x.date === date && (x.meetTime || x.meetPlace || x.departTime)).pop();
+    return { meetTime: g?.meetTime ?? '', meetPlace: g?.meetPlace ?? '', departTime: g?.departTime ?? '' };
+  };
+  const [f, setF] = useState<GameInput>(() => {
+    if (editing) return { ...editing, ourScore: editing.ourScore === null ? '' : String(editing.ourScore), oppScore: editing.oppScore === null ? '' : String(editing.oppScore) };
+    const date = todayStr() >= t.startDate && todayStr() <= t.endDate ? todayStr() : t.startDate;
+    return { tournamentId: t.id, date, time: '', opponent: '', location: t.location, side: '', ourScore: '', oppScore: '', note: '', ...sameDay(date) };
+  });
+  // 以前用過的集合地點，可以直接選
+  const places = Array.from(new Set(data.games.map((g) => g.meetPlace).filter(Boolean)));
   return (
     <form
       className="form game-form"
@@ -134,9 +140,17 @@ function GameForm({ data, t, editing, onDone }: { data: Data; t: Tournament; edi
     >
       <div className="grid-4">
         <Field label="日期" required>
-          <input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
+          <input
+            type="date"
+            value={f.date}
+            onChange={(e) => {
+              const date = e.target.value;
+              // 新增時換日期：如果還沒填集合資料，就帶入那天其他比賽的
+              setF(!editing && !f.meetTime && !f.meetPlace && !f.departTime ? { ...f, date, ...sameDay(date) } : { ...f, date });
+            }}
+          />
         </Field>
-        <Field label="時間">
+        <Field label="比賽時間">
           <input type="time" value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} />
         </Field>
         <Field label="對手" required>
@@ -144,6 +158,20 @@ function GameForm({ data, t, editing, onDone }: { data: Data; t: Tournament; edi
         </Field>
         <Field label="場地">
           <input value={f.location} maxLength={60} onChange={(e) => setF({ ...f, location: e.target.value })} />
+        </Field>
+        <Field label="集合時間" hint="給家長的行前通知">
+          <input type="time" value={f.meetTime} onChange={(e) => setF({ ...f, meetTime: e.target.value })} />
+        </Field>
+        <Field label="集合地點">
+          <input value={f.meetPlace} maxLength={60} list="meet-places" onChange={(e) => setF({ ...f, meetPlace: e.target.value })} placeholder="例如：東勢國中校門口" />
+          <datalist id="meet-places">
+            {places.map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
+        </Field>
+        <Field label="出發時間">
+          <input type="time" value={f.departTime} onChange={(e) => setF({ ...f, departTime: e.target.value })} />
         </Field>
         <Field label="先攻／後攻">
           <select value={f.side} onChange={(e) => setF({ ...f, side: e.target.value as GameInput['side'] })}>
@@ -264,9 +292,20 @@ function TournamentDetail({ data, t, coach, onEdit }: { data: Data; t: Tournamen
       <div className="row-between">
         <h3 className="section-title">賽程與比分</h3>
         {coach && !gameForm && (
-          <button type="button" className="btn btn-sm btn-primary" onClick={() => setGameForm('new')}>
-            ＋ 新增比賽
-          </button>
+          <span className="form-actions">
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => setGameForm('new')}>
+              ＋ 新增比賽
+            </button>
+            {games.length > 0 && (
+              <LineImageButton
+                key={t.id + games.map((g) => g.id + g.meetTime + g.meetPlace + g.departTime + g.time).join()}
+                make={() => parentNoticeImage(t, games, data.today || todayStr())}
+                filename={`行前通知-${t.name}.png`}
+                title={`${t.name} 家長行前通知`}
+                label="📣 家長行前通知圖片"
+              />
+            )}
+          </span>
         )}
       </div>
       {gameForm && <GameForm key={gameForm === 'new' ? 'new' : gameForm.id} data={data} t={t} editing={gameForm === 'new' ? null : gameForm} onDone={() => setGameForm(null)} />}
@@ -279,6 +318,7 @@ function TournamentDetail({ data, t, coach, onEdit }: { data: Data; t: Tournamen
             <thead>
               <tr>
                 <th>日期</th>
+                <th>集合／出發</th>
                 <th>對手</th>
                 <th>比分</th>
                 <th>場地</th>
@@ -292,7 +332,16 @@ function TournamentDetail({ data, t, coach, onEdit }: { data: Data; t: Tournamen
                   <tr key={g.id}>
                     <td className="nowrap">
                       {shortDate(g.date)}
-                      {g.time && <div className="muted small">{g.time}</div>}
+                      {g.time && <div className="muted small">{g.time} 開打</div>}
+                    </td>
+                    <td className="small">
+                      {g.meetTime || g.meetPlace ? (
+                        <div>
+                          🚩 {g.meetTime} {g.meetPlace}
+                        </div>
+                      ) : null}
+                      {g.departTime && <div>🚌 {g.departTime} 出發</div>}
+                      {!g.meetTime && !g.meetPlace && !g.departTime && <span className="muted">—</span>}
                     </td>
                     <td>
                       <strong>{g.opponent}</strong>

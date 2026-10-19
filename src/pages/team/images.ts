@@ -1,4 +1,4 @@
-import type { AttendanceStatus, PracticeDay, Player, Tournament } from '../../types';
+import type { AttendanceStatus, Game, PracticeDay, Player, Tournament } from '../../types';
 import { addDays, formatDateTime, nowIso } from '../../lib/date';
 import { renderTableImage, type ImageCell } from '../../lib/noticeImage';
 import { loadImage } from '../../lib/photo';
@@ -163,6 +163,39 @@ export async function jerseyImage(t: Tournament, players: Player[], names: Recor
         { text: p?.position ?? '' },
       ];
     }),
+    footer: footer(),
+  });
+}
+
+/** 給家長的行前通知：每場比賽的集合時間、集合地點、出發時間與比賽資訊；賽事備註放在下方「注意事項」 */
+export function parentNoticeImage(t: Tournament, games: Game[], today: string): HTMLCanvasElement {
+  // 只放還沒比的；都比完了就全部放
+  const upcoming = games.filter((g) => g.date >= today);
+  const list = (upcoming.length ? upcoming : games).slice().sort((a, b) => (a.date + a.time < b.date + b.time ? -1 : 1));
+  const dates = t.endDate && t.endDate !== t.startDate ? `${shortDate(t.startDate)}～${shortDate(t.endDate)}` : shortDate(t.startDate);
+  return renderTableImage({
+    title: '📣 比賽行前通知',
+    subtitle: t.name,
+    summary: [dates, t.location && `📍${t.location}`].filter(Boolean).join('｜'),
+    columns: [
+      { label: '日期', width: 140 },
+      { label: '集合', width: 250 },
+      { label: '出發', width: 100 },
+      { label: '比賽', width: 230 },
+      { label: '場地', width: 200 },
+    ],
+    rows: list.map((g, i): ImageCell[] => [
+      { text: i > 0 && list[i - 1].date === g.date ? '\u3000' : shortDate(g.date), bold: true },
+      g.meetTime || g.meetPlace ? { text: [g.meetTime, g.meetPlace].filter(Boolean).join('\n'), bold: true, color: '#b71c1c' } : { text: '' },
+      { text: g.departTime, bold: true },
+      { text: [g.time && `${g.time} 開打`, `對 ${g.opponent}`, g.side].filter(Boolean).join('\n') },
+      { text: g.location },
+    ]),
+    rowBg: (i) => {
+      const order = Array.from(new Set(list.map((g) => g.date)));
+      return order.indexOf(list[i].date) % 2 ? '#f3f6fb' : '#ffffff';
+    },
+    notes: t.note || undefined,
     footer: footer(),
   });
 }

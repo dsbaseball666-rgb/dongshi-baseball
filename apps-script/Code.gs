@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.8.5';
+const API_VERSION = '5.8.6';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -61,7 +61,8 @@ const SCHEMA = {
   Transactions: ['id', 'year', 'date', 'type', 'itemId', 'title', 'amount', 'handler', 'note', 'createdById', 'createdBy', 'createdAt', 'updatedAt'],
   // jerseys（5.8.4）：這場賽事的球衣號碼 JSON（球員編號 → 號碼文字，例如 "7"、"00"）；只在比賽用，平常不顯示
   Tournaments: ['id', 'name', 'kind', 'startDate', 'endDate', 'location', 'organizer', 'signupDeadline', 'fee', 'result', 'playerIds', 'note', 'createdById', 'createdAt', 'updatedAt', 'jerseys'],
-  Games: ['id', 'tournamentId', 'date', 'time', 'opponent', 'location', 'side', 'ourScore', 'oppScore', 'note', 'createdById', 'createdAt', 'updatedAt'],
+  // meetTime／meetPlace／departTime（5.8.6）：集合時間、集合地點、出發時間（給家長的行前通知）
+  Games: ['id', 'tournamentId', 'date', 'time', 'opponent', 'location', 'side', 'ourScore', 'oppScore', 'note', 'createdById', 'createdAt', 'updatedAt', 'meetTime', 'meetPlace', 'departTime'],
   // 5.8：教練練球安排（一天多個時段、指定參加人員；playerIds 空白＝全隊）
   TrainingPlans: ['id', 'date', 'startTime', 'endTime', 'slot', 'items', 'playerIds', 'location', 'note', 'createdById', 'updatedBy', 'createdAt', 'updatedAt'],
 };
@@ -3242,6 +3243,7 @@ function parseGame_(r) {
   return {
     id: r.id, tournamentId: r.tournamentId, date: r.date, time: r.time, opponent: r.opponent, location: r.location, side: r.side,
     ourScore: r.ourScore === '' ? null : Number(r.ourScore), oppScore: r.oppScore === '' ? null : Number(r.oppScore), note: r.note,
+    meetTime: r.meetTime || '', meetPlace: r.meetPlace || '', departTime: r.departTime || '',
   };
 }
 
@@ -3296,10 +3298,15 @@ function saveGame_(ctx) {
   const ourScore = intStr_(p.ourScore, '我方得分', 0, 99);
   const oppScore = intStr_(p.oppScore, '對手得分', 0, 99);
   if ((ourScore === '') !== (oppScore === '')) throw apiError_('INVALID', '比分請兩邊都填，或兩邊都空白。');
+  const meetTime = timeStr_(p.meetTime, '集合時間');
+  const departTime = timeStr_(p.departTime, '出發時間');
+  if (meetTime && departTime && departTime < meetTime) throw apiError_('INVALID', '出發時間不能早於集合時間。');
   const fields = {
+    meetTime: meetTime, departTime: departTime, meetPlace: str_(p.meetPlace, '集合地點', { max: 60 }),
     tournamentId: tournamentId, date: dateStr_(p.date, '比賽日期'), time: timeStr_(p.time, '比賽時間'), opponent: str_(p.opponent, '對手', { required: true, max: 40 }),
     location: str_(p.location, '場地', { max: 60 }), side: p.side || '', ourScore: ourScore, oppScore: oppScore, note: str_(p.note, '備註', { max: 300 }), updatedAt: nowIso_(),
   };
+  ensureHeaders_('Games');
   const row = upsert_('Games', p.id, fields, { id: newId_('GM'), createdById: ctx.actor.id, createdAt: fields.updatedAt }, '找不到這場比賽。');
   return { game: parseGame_(stringify_(row)) };
 }

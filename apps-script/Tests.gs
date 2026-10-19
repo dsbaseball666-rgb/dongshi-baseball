@@ -651,6 +651,9 @@ function runSelfTests() {
       const tnId = tn.ok ? tn.data.tournament.id : '';
       const gm = call('saveGame', { tournamentId: tnId, date: today, time: '09:00', opponent: '測試國中', side: '先攻', ourScore: '5', oppScore: '3' }, tCoach, Utilities.getUuid());
       expectOk('教練可以新增比賽與比分', gm);
+      const gmMeet = call('saveGame', { id: gm.data.game.id, tournamentId: tnId, date: today, time: '09:00', opponent: '測試國中', side: '先攻', ourScore: '5', oppScore: '3', meetTime: '06:30', meetPlace: '東勢國中校門口', departTime: '06:45' }, tCoach, Utilities.getUuid());
+      results.push([gmMeet.ok && gmMeet.data.game.meetTime === '06:30' && gmMeet.data.game.meetPlace === '東勢國中校門口' && gmMeet.data.game.departTime === '06:45', '比賽可以設定集合時間、集合地點、出發時間', gmMeet.ok ? '' : gmMeet.error]);
+      expectFail('出發時間不能早於集合時間', call('saveGame', { tournamentId: tnId, date: today, opponent: 'x', meetTime: '07:00', departTime: '06:30' }, tCoach), 'INVALID');
       expectFail('比分只填一邊會被拒絕', call('saveGame', { tournamentId: tnId, date: today, opponent: 'x', ourScore: '5', oppScore: '' }, tCoach), 'INVALID');
       const lt = call('listTournaments', {}, tPA);
       const myT = lt.ok ? lt.data.tournaments.find((t) => t.id === tnId) : null;

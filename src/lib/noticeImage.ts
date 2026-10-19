@@ -19,6 +19,8 @@ export interface TableImageSpec {
   /** 每一列的底色（例如休息日用灰色） */
   rowBg?: (index: number) => string | undefined;
   footer?: string;
+  /** 表格下方的注意事項（會自動換行） */
+  notes?: string;
 }
 
 const FONT = "'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', 'Heiti TC', sans-serif";
@@ -65,7 +67,10 @@ export function renderTableImage(spec: TableImageSpec): HTMLCanvasElement {
   const summaryH = spec.summary ? 52 : 0;
   const theadH = 48;
   const footH = spec.footer ? 52 : 24;
-  const H = headH + summaryH + PAD + theadH + rowH.reduce((s, h) => s + h, 0) + footH;
+  measure.font = font(20);
+  const noteLines = spec.notes ? wrap(measure, spec.notes, tableW - 24) : [];
+  const notesH = noteLines.length ? 64 + noteLines.length * 30 : 0;
+  const H = headH + summaryH + PAD + theadH + rowH.reduce((s, h) => s + h, 0) + notesH + footH;
 
   const canvas = document.createElement('canvas');
   canvas.width = W * SCALE;
@@ -148,6 +153,17 @@ export function renderTableImage(spec: TableImageSpec): HTMLCanvasElement {
   ctx.lineWidth = 3;
   ctx.strokeRect(PAD, y - rowH.reduce((s, v) => s + v, 0) - theadH, tableW, rowH.reduce((s, v) => s + v, 0) + theadH);
 
+  if (noteLines.length) {
+    y += 20;
+    ctx.fillStyle = '#fff4cf';
+    ctx.fillRect(PAD, y, tableW, notesH - 20);
+    ctx.fillStyle = '#23263a';
+    ctx.font = font(20, true);
+    ctx.fillText('📌 注意事項', PAD + 12, y + 12);
+    ctx.font = font(20);
+    noteLines.forEach((l, k) => ctx.fillText(l, PAD + 12, y + 46 + k * 30));
+    y += notesH - 20;
+  }
   if (spec.footer) {
     ctx.font = font(17);
     ctx.fillStyle = '#5a5f78';
