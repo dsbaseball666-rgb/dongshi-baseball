@@ -179,20 +179,20 @@ const PHOTO_W = 72;
 const PHOTO_H = 90;
 
 /** 照片裁切成剛好填滿方框（像 CSS 的 object-fit: cover），加上圓角 */
-function drawCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource & { width: number; height: number }, x: number, y: number, w: number, h: number) {
+function drawCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource & { width: number; height: number }, x: number, y: number, w: number, h: number, focusY = 0.5, radius = 6) {
   const scale = Math.max(w / img.width, h / img.height);
   const sw = w / scale;
   const sh = h / scale;
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(x + 6, y);
-  ctx.arcTo(x + w, y, x + w, y + h, 6);
-  ctx.arcTo(x + w, y + h, x, y + h, 6);
-  ctx.arcTo(x, y + h, x, y, 6);
-  ctx.arcTo(x, y, x + w, y, 6);
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
   ctx.closePath();
   ctx.clip();
-  ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, x, y, w, h);
+  ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) * focusY, sw, sh, x, y, w, h);
   ctx.restore();
 }
 
@@ -245,4 +245,98 @@ export function canShareFiles(): boolean {
   } catch {
     return false;
   }
+}
+
+export interface PhotoGridItem {
+  label: string;
+  image?: CanvasImageSource & { width: number; height: number };
+  /** 沒有照片時，方框裡顯示的字 */
+  placeholder?: string;
+}
+
+/** 照片牆：每格上方一行字、下方一張照片（例如「背號 10 周柏竣」＋大頭照） */
+export function renderPhotoGrid(spec: { title: string; subtitle?: string; summary?: string; items: PhotoGridItem[]; perRow?: number; footer?: string }): HTMLCanvasElement {
+  const perRow = spec.perRow ?? 5;
+  const CARD_W = 214;
+  const LABEL_H = 44;
+  const PHOTO_W2 = CARD_W - 12;
+  const PHOTO_H2 = 160;
+  const CARD_H = LABEL_H + PHOTO_H2 + 6;
+  const GAP = 0;
+  const gridW = perRow * CARD_W + (perRow - 1) * GAP;
+  const W = gridW + PAD * 2;
+  const headH = 104 + (spec.subtitle ? 34 : 0);
+  const summaryH = spec.summary ? 52 : 12;
+  const rows = Math.max(1, Math.ceil(spec.items.length / perRow));
+  const footH = spec.footer ? 52 : 24;
+  const H = headH + summaryH + PAD - 12 + rows * CARD_H + footH;
+  const canvas = document.createElement('canvas');
+  canvas.width = W * SCALE;
+  canvas.height = H * SCALE;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(SCALE, SCALE);
+  ctx.textBaseline = 'top';
+  const font = (size: number, bold = false) => `${bold ? 'bold ' : ''}${size}px ${FONT}`;
+
+  ctx.fillStyle = '#fffdf5';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#23263a';
+  ctx.fillRect(0, 0, W, headH);
+  ctx.fillStyle = '#ffcc33';
+  ctx.fillRect(0, headH - 8, W, 8);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(32, true);
+  ctx.fillText(spec.title, PAD, 30);
+  if (spec.subtitle) {
+    ctx.font = font(22);
+    ctx.fillStyle = '#ffe9a6';
+    ctx.fillText(spec.subtitle, PAD, 78);
+  }
+  let y = headH;
+  if (spec.summary) {
+    ctx.font = font(21, true);
+    ctx.fillStyle = '#23263a';
+    ctx.fillText(spec.summary, PAD, y + 18);
+  }
+  y += summaryH + PAD - 12;
+
+  spec.items.forEach((it, i) => {
+    const cx = PAD + (i % perRow) * (CARD_W + GAP);
+    const cy = y + Math.floor(i / perRow) * CARD_H;
+    // 外框（像表格一樣一格一格）
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cx, cy, CARD_W, CARD_H);
+    ctx.strokeStyle = '#23263a';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx, cy, CARD_W, CARD_H);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + LABEL_H);
+    ctx.lineTo(cx + CARD_W, cy + LABEL_H);
+    ctx.stroke();
+    // 上方的字（太長就縮小）
+    let size = 21;
+    ctx.font = font(size, true);
+    while (ctx.measureText(it.label).width > CARD_W - 16 && size > 14) ctx.font = font(--size, true);
+    ctx.fillStyle = '#23263a';
+    ctx.fillText(it.label, cx + 8, cy + (LABEL_H - size) / 2);
+    // 照片
+    const px = cx + 6;
+    const py = cy + LABEL_H + 3;
+    if (it.image) drawCover(ctx, it.image, px, py, PHOTO_W2, PHOTO_H2, 0.3, 2);
+    else {
+      ctx.fillStyle = '#eef0f5';
+      ctx.fillRect(px, py, PHOTO_W2, PHOTO_H2);
+      ctx.fillStyle = '#9aa0b4';
+      ctx.font = font(20);
+      const t = it.placeholder ?? '（沒有照片）';
+      ctx.fillText(t, px + (PHOTO_W2 - ctx.measureText(t).width) / 2, py + PHOTO_H2 / 2 - 10);
+    }
+  });
+
+  if (spec.footer) {
+    ctx.font = font(17);
+    ctx.fillStyle = '#5a5f78';
+    ctx.fillText(spec.footer, PAD, y + rows * CARD_H + 18);
+  }
+  return canvas;
 }
