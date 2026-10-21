@@ -96,6 +96,10 @@ function runSelfTests() {
     expectFail('未來日期會被拒絕', call('saveNote', Object.assign({}, note, { date: '2999-01-01' }), tA), 'INVALID');
     expectFail('不存在的日期會被拒絕', call('saveNote', Object.assign({}, note, { date: '2026-02-30' }), tA), 'INVALID');
     expectOk('教練可以讀任何球員的筆記', call('listNotes', { playerId: 'TEST-PA' }, tCoach));
+    const rangeRes = call('listNotesRange', { from: today, to: today }, tCoach);
+    results.push([rangeRes.ok && rangeRes.data.notes.some((n) => n.playerId === 'TEST-PA' && n.date === today), '教練可以一次查看全隊當天的筆記', rangeRes.ok ? '' : rangeRes.error]);
+    expectFail('全隊筆記一次最多查看 31 天', call('listNotesRange', { from: '2026-01-01', to: '2026-03-01' }, tCoach), 'INVALID');
+    expectFail('開始日期晚於結束日期會被拒絕', call('listNotesRange', { from: today, to: '2026-01-01' }, tCoach), 'INVALID');
     expectOk('教練可以寫評語', call('commentNote', { noteId: notesA[0].id, comment: '很好' }, tCoach, Utilities.getUuid()));
     expectFail('球員不能寫評語', call('commentNote', { noteId: notesA[0].id, comment: '自己給自己好評' }, tA), 'FORBIDDEN');
 

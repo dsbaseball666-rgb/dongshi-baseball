@@ -109,6 +109,29 @@ export function useNotes(playerId: string) {
   return { notes: q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, save, comment };
 }
 
+/** 教練：全隊在一段日期內的筆記（一次檢查誰寫了、寫了什麼） */
+export function useTeamNotes(from: string, to: string) {
+  const { mode, db, user, api, perform } = useStore();
+  const cloud = mode === 'cloud';
+  const q = useCloudQuery<DailyNote[]>(cloud, `team-notes-${from}-${to}`, () => api<{ notes: DailyNote[] }>('listNotesRange', { from, to }, '讀取全隊筆記').then((r) => r.notes), []);
+
+  const comment = useCallback(
+    async (noteId: string, text: string) => {
+      if (!cloud) {
+        await perform('儲存教練評語', (d) => commentNote(d, user, noteId, text));
+        return;
+      }
+      const r = await api<{ note: DailyNote }>('commentNote', { noteId, comment: text }, '儲存教練評語');
+      q.setState((s) => ({ ...s, data: upsertById(s.data, r.note) }));
+    },
+    [cloud, perform, user, api, q.setState],
+  );
+
+  const demoNotes = useMemo(() => db.notes.filter((n) => n.date >= from && n.date <= to), [db.notes, from, to]);
+  if (!cloud) return { notes: demoNotes, loading: false, error: null as string | null, reload: () => undefined, comment };
+  return { notes: q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, comment };
+}
+
 export function useFitness(playerId: string) {
   const { mode, db, user, api, perform } = useStore();
   const cloud = mode === 'cloud';

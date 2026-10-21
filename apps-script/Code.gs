@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.8.6';
+const API_VERSION = '5.8.7';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -173,6 +173,7 @@ const ROUTES = {
   listPlayers: { roles: ALL_ROLES, fn: listPlayers_ },
   // 每日筆記
   listNotes: { roles: COACH_PLAYER, fn: listNotes_ },
+  listNotesRange: { roles: COACH, fn: listNotesRange_ },
   saveNote: { roles: ['player'], write: true, fn: saveNote_ },
   commentNote: { roles: COACH, write: true, fn: commentNote_ },
   // 體能檢測
@@ -459,6 +460,17 @@ function listNotes_(ctx) {
   const playerId = str_(ctx.payload.playerId, '球員', { required: true, max: 20 });
   requireCanReadPlayer_(ctx.actor, playerId);
   const notes = readAll_('DailyNotes').filter((n) => n.playerId === playerId).map(parseNote_);
+  notes.sort((a, b) => (a.date < b.date ? 1 : -1));
+  return { notes: notes };
+}
+
+/** 教練：全隊在一段日期內的筆記（最多 31 天），用來一次檢查誰寫了、寫了什麼 */
+function listNotesRange_(ctx) {
+  const from = dateStr_(ctx.payload.from, '開始日期');
+  const to = dateStr_(ctx.payload.to, '結束日期');
+  if (from > to) throw apiError_('INVALID', '開始日期不能晚於結束日期。');
+  if ((Date.parse(to) - Date.parse(from)) / 86400000 > 30) throw apiError_('INVALID', '一次最多查看 31 天。');
+  const notes = readAll_('DailyNotes').filter((n) => n.date >= from && n.date <= to).map(parseNote_);
   notes.sort((a, b) => (a.date < b.date ? 1 : -1));
   return { notes: notes };
 }

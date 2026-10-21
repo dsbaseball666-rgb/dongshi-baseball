@@ -300,6 +300,30 @@ th { background: #f2f4f8; white-space: nowrap; }
 .note-row { display: flex; flex-direction: column; gap: 2px; }
 .note-label { font-weight: 700; font-size: 0.85rem; color: var(--grass-dark); }
 
+/* 全隊筆記一覽 */
+.team-note-date { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.team-note-filters { margin: 10px 0 6px; }
+.team-notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.team-notes.is-compact { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.team-note { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: #fff; border: 3px solid var(--line); border-left-width: 8px; border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
+.team-note.status-done { border-left-color: #43a047; }
+.team-note.status-partial { border-left-color: #f9a825; }
+.team-note.status-none { border-left-color: #e53935; background: #fff5f5; }
+.team-note-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.team-note-name { font: inherit; font-weight: 900; font-size: 1.05rem; padding: 0; color: var(--ink); background: none; border: 0; cursor: pointer; text-decoration: underline dotted; }
+.team-note-dots { margin-left: auto; letter-spacing: 1px; white-space: nowrap; }
+.team-note-dots .dot { font-size: 0.95rem; }
+.dot-done { color: #43a047; }
+.dot-partial { color: #f9a825; }
+.dot-none { color: #b0b0b0; }
+.team-note-fields { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.team-note-fields dt { font-weight: 700; font-size: 0.8rem; color: var(--grass-dark); }
+.team-note-fields dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.team-note-fields .is-empty dd { color: #c62828; font-size: 0.9rem; }
+.team-note-missing { color: #c62828; font-weight: 700; }
+.team-note-comment { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 2px dashed #ddd; font-size: 0.92rem; }
+@media (max-width: 480px) { .team-notes, .team-notes.is-compact { grid-template-columns: 1fr; } }
+
 /* ── 目標 ── */
 .goal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .goal-card { background: #fff; border: 3px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; display: flex; flex-direction: column; gap: 8px; }

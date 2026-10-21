@@ -8,6 +8,7 @@ import { SELF_CHECK_ITEMS } from '../data/selfChecks';
 import { can } from '../lib/permissions';
 import { formatDate, formatDateTime, todayStr } from '../lib/date';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState, PageHeader } from '../components/UI';
+import { TeamNotesView } from './TeamNotesView';
 
 const TEXT_FIELDS: { key: keyof Omit<NoteInput, 'playerId' | 'date' | 'selfChecks'>; label: string; rows: number; required?: boolean; placeholder: string }[] = [
   { key: 'training', label: '當日訓練內容', rows: 3, required: true, placeholder: '例如：動態暖身、傳接球、打擊練習…' },
@@ -142,12 +143,15 @@ export default function NotesPage() {
   const playerId = isCoach ? params.get('player') ?? activePlayers[0]?.id ?? '' : user?.playerId ?? '';
   const date = params.get('date') ?? todayStr();
   const [keyword, setKeyword] = useState('');
-  const source = useNotes(playerId);
+  // 教練預設看「全隊一覽」，一次看完每位球員這天寫了什麼
+  const view = isCoach && params.get('view') !== 'player' ? 'team' : 'player';
+  const source = useNotes(view === 'team' ? '' : playerId);
 
-  const update = (next: { player?: string; date?: string }) => {
+  const update = (next: { player?: string; date?: string; view?: 'team' | 'player' }) => {
     const p = new URLSearchParams(params);
     if (next.player !== undefined) p.set('player', next.player);
     if (next.date !== undefined) p.set('date', next.date);
+    if (next.view !== undefined) p.set('view', next.view);
     setParams(p, { replace: true });
   };
 
@@ -162,6 +166,29 @@ export default function NotesPage() {
   return (
     <div className="page">
       <PageHeader icon="📒" title="每日棒球筆記本" subtitle={isCoach ? '查看球員筆記並撰寫評語' : '每天一筆，記錄訓練、心得與目標'} />
+      {isCoach && (
+        <div className="tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={view === 'team'} className={`tab ${view === 'team' ? 'active' : ''}`} onClick={() => update({ view: 'team' })}>
+            📋 全隊一覽
+          </button>
+          <button type="button" role="tab" aria-selected={view === 'player'} className={`tab ${view === 'player' ? 'active' : ''}`} onClick={() => update({ view: 'player' })}>
+            👤 個別球員
+          </button>
+        </div>
+      )}
+      {view === 'team' ? (
+        playersLoading ? (
+          <Card>
+            <LoadingState text="讀取球員名單…" />
+          </Card>
+        ) : (
+          <>
+            {playersError && <Alert kind="error">{playersError}</Alert>}
+            <TeamNotesView players={activePlayers} date={date} onDate={(d) => update({ date: d })} onOpenPlayer={(id) => update({ player: id, view: 'player' })} />
+          </>
+        )
+      ) : (
+        <>
       {isCoach && (
         <Card>
           {playersError && <Alert kind="error">{playersError}</Alert>}
@@ -232,6 +259,8 @@ export default function NotesPage() {
             )}
           </Card>
         </div>
+      )}
+        </>
       )}
       {!isCoach && <Alert kind="info">同一天只會有一筆主紀錄，再次儲存會更新同一筆。教練評語只能由教練填寫。</Alert>}
     </div>
