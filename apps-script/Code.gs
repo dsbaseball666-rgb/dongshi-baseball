@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.8.7';
+const API_VERSION = '5.8.8';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -255,6 +255,7 @@ const ROUTES = {
   saveEvent: { roles: STAFF, write: true, fn: saveEvent_ },
   deleteEvent: { roles: STAFF, write: true, fn: deleteEvent_ },
   adminSetUserActive: { roles: COACH, write: true, fn: adminSetUserActive_ },
+  adminDeleteUsers: { roles: COACH, write: true, fn: adminDeleteUsers_ },
   listAudit: { roles: COACH, fn: listAudit_ },
   adminCreatePlayerAccount: { roles: COACH, write: true, fn: adminCreatePlayerAccount_ },
   // 匯入舊體能檢測資料（預覽不寫入；確認後才寫入）
@@ -1776,6 +1777,31 @@ function adminSetUserActive_(ctx) {
   updateRow_('Users', u._row, Object.assign({}, u, { active: active ? 'TRUE' : 'FALSE', updatedAt: nowIso_() }));
   audit_(a, active ? '啟用帳號' : '停用帳號', u.id, u.displayName);
   return { userId: id, active: active };
+}
+
+/** 一次永久刪除多個帳號（家長、老師、學務處、其他教練）；球員帳號要從球員名單刪除，才會連同資料一起處理 */
+function adminDeleteUsers_(ctx) {
+  const a = ctx.actor;
+  requireRole_(a, ['coach']);
+  const raw = Array.isArray(ctx.payload.userIds) ? ctx.payload.userIds : [];
+  const ids = raw.map((x) => str_(x, '帳號', { required: true, max: 40 })).filter((x, i, arr) => arr.indexOf(x) === i);
+  if (ids.length < 1) throw apiError_('INVALID', '請先勾選要刪除的帳號。');
+  if (ids.length > 100) throw apiError_('INVALID', '一次最多刪除 100 個帳號。');
+  const users = readAll_('Users');
+  // 先全部檢查，有任何一個不能刪就整批不刪
+  const targets = ids.map((id) => {
+    const u = users.find((x) => x.id === id);
+    if (!u) throw apiError_('NOT_FOUND', '找不到其中一個帳號，請重新整理後再試。');
+    if (u.id === a.id) throw apiError_('INVALID', '不能刪除自己的帳號。');
+    if (u.role === 'player') throw apiError_('INVALID', '「' + u.displayName + '」是球員帳號，請到「球員名單」按「刪除」，才會連同筆記、成績等資料一起處理。');
+    return u;
+  });
+  targets
+    .map((u) => u._row)
+    .sort((x, y) => y - x)
+    .forEach((row) => deleteRow_('Users', row));
+  targets.forEach((u) => audit_(a, '刪除帳號', u.id, u.displayName + '（' + u.loginId + '・' + u.role + '）'));
+  return { deleted: targets.length };
 }
 
 function listAudit_(ctx) {

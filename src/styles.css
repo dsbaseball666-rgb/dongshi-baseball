@@ -300,6 +300,11 @@ th { background: #f2f4f8; white-space: nowrap; }
 .note-row { display: flex; flex-direction: column; gap: 2px; }
 .note-label { font-weight: 700; font-size: 0.85rem; color: var(--grass-dark); }
 
+/* 帳號清單：勾選多個一次刪除 */
+.bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.bulk-bar .btn-danger { margin-left: auto; }
+tr.row-selected td { background: #fff3e0; }
+
 /* 全隊筆記一覽 */
 .team-note-date { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .team-note-filters { margin: 10px 0 6px; }

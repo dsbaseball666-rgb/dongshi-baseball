@@ -524,6 +524,19 @@ function runSelfTests() {
     results.push([swap.ok && readAll_('Users').find((u) => u.id === teacherAcc.id).role === 'office', '教練可以把老師帳號改成學務處', swap.ok ? '' : swap.error]);
     expectFail('教練帳號不能被改成其他角色', call('adminUpdateUser', { userId: coachAcc.id, displayName: 'x', role: 'office' }, tCoach), 'INVALID');
 
+    // 21-1. 一次刪除多個帳號
+    const del1 = mk('test-parent-' + (Date.now() + 11), 'parent', '', 'TEST-PA');
+    const del2 = mk('test-teacher-' + (Date.now() + 12), 'teacher', '', 'TEST-PA');
+    const tDel1 = call('login', { loginId: del1.loginId, code: del1.code }).data.token;
+    expectFail('勾到自己的帳號時整批不刪', call('adminDeleteUsers', { userIds: [del1.id, coachAcc.id] }, tCoach), 'INVALID');
+    expectFail('勾到球員帳號時整批不刪（球員要從球員名單刪除）', call('adminDeleteUsers', { userIds: [del1.id, paAcc.id] }, tCoach), 'INVALID');
+    results.push([readAll_('Users').some((u) => u.id === del1.id), '整批不刪時，其他帳號也保留', '']);
+    expectFail('沒有勾選帳號時不能刪除', call('adminDeleteUsers', { userIds: [] }, tCoach), 'INVALID');
+    const delRes = call('adminDeleteUsers', { userIds: [del1.id, del2.id] }, tCoach, Utilities.getUuid());
+    results.push([delRes.ok && delRes.data.deleted === 2 && !readAll_('Users').some((u) => u.id === del1.id || u.id === del2.id), '教練可以一次刪除多個帳號', delRes.ok ? '' : delRes.error]);
+    expectFail('被刪除的帳號立即無法使用', call('me', {}, tDel1), 'AUTH');
+    results.push([readAll_('AuditLogs').filter((l) => l.action === '刪除帳號' && (l.target === del1.id || l.target === del2.id)).length === 2, '刪除帳號會記錄在操作紀錄', '']);
+
     // 22. 與怪獸互動、親密度進化
     mon('TEST-M4', 904, { evolvesTo: 'TEST-M5', evolveLevel: 30, evolveAffection: 10 });
     mon('TEST-M5', 905, { stage: 2 });

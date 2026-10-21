@@ -49,10 +49,13 @@ function AccountsTab() {
   const task = useTask();
   const playerTask = useTask();
   const userTask = useTask();
+  const bulkTask = useTask();
   const [pForm, setPForm] = useState({ name: '', number: '', grade: '七年級', position: '' });
   const [editingPlayer, setEditingPlayer] = useState<string | null>(null);
   const [uForm, setUForm] = useState<{ loginId: string; displayName: string; role: Role; childPlayerIds: string[] }>({ loginId: '', displayName: '', role: 'parent', childPlayerIds: [] });
   const [editingUser, setEditingUser] = useState<string | null>(null);
+  // 帳號清單勾選（一次刪除多個帳號）
+  const [selected, setSelected] = useState<string[]>([]);
   const resetUserForm = () => {
     setEditingUser(null);
     setUForm({ loginId: '', displayName: '', role: 'parent', childPlayerIds: [] });
@@ -110,6 +113,31 @@ function AccountsTab() {
     if (r.ok && r.result) {
       setIssued({ title: `${uForm.displayName}（${ROLE_LABELS[uForm.role]}）的帳號`, loginId: r.result.loginId, code: r.result.code });
       resetUserForm();
+      load();
+    }
+  };
+
+  const canDelete = (u: User) => u.role !== 'player' && u.id !== user?.id;
+  const deletable = data.users.filter(canDelete);
+  // 快速勾選會加進目前的勾選（例如先按「家長」再按「老師」＝兩種都勾）
+  const pick = (match: (u: User) => boolean) => setSelected((s) => Array.from(new Set([...s, ...deletable.filter(match).map((u) => u.id)])));
+  const deleteSelected = async () => {
+    const list = data.users.filter((u) => selected.includes(u.id));
+    if (list.length === 0) return;
+    const names = list.map((u) => `・${u.displayName}（${u.loginId}，${ROLE_LABELS[u.role]}）`);
+    const shownNames = names.length > 15 ? [...names.slice(0, 15), `…另外 ${names.length - 15} 個`] : names;
+    const typed = window.prompt(
+      `⚠️ 永久刪除 ${list.length} 個帳號：\n${shownNames.join('\n')}\n\n刪除後這些人就不能再登入，無法復原（只想暫時不讓他登入，建議按「停用」）。他們以前在溝通區的留言會保留。\n\n確定要刪除，請輸入「刪除」兩個字：`,
+    );
+    if (typed === null) return;
+    if (typed.trim() !== '刪除') {
+      window.alert('沒有輸入「刪除」，帳號都沒有被刪除。');
+      return;
+    }
+    const r = await bulkTask.run(() => api<{ deleted: number }>('adminDeleteUsers', { userIds: list.map((u) => u.id) }, '刪除帳號'), `已刪除 ${list.length} 個帳號。`);
+    if (r.ok) {
+      setSelected([]);
+      if (editingUser && selected.includes(editingUser)) resetUserForm();
       load();
     }
   };
@@ -315,10 +343,43 @@ function AccountsTab() {
       </Card>
 
       <Card title={`帳號清單（${data.users.length}）`} icon="🧾">
+        <div className="bulk-bar">
+          <span className="small">快速勾選：</span>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => pick(() => true)}>
+            全部可刪除的
+          </button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => pick((u) => u.role === 'parent')}>
+            家長
+          </button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => pick((u) => u.role === 'teacher')}>
+            老師
+          </button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => pick((u) => !u.active)}>
+            停用中的
+          </button>
+          {selected.length > 0 && (
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSelected([])}>
+              清除勾選
+            </button>
+          )}
+          <button type="button" className="btn btn-sm btn-danger" disabled={selected.length === 0 || bulkTask.pending} onClick={deleteSelected}>
+            🗑️ 刪除勾選的帳號（{selected.length}）
+          </button>
+        </div>
+        <ActionFeedback action={bulkTask} />
+        <p className="muted small">球員帳號不能在這裡刪除（請到上方「球員名單」按「刪除」，才會連同筆記、成績一起處理）；自己的帳號也不能刪除。</p>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    aria-label="全選可刪除的帳號"
+                    checked={deletable.length > 0 && deletable.every((u) => selected.includes(u.id))}
+                    onChange={(e) => setSelected(e.target.checked ? deletable.map((u) => u.id) : [])}
+                  />
+                </th>
                 <th>帳號</th>
                 <th>名稱</th>
                 <th>角色</th>
@@ -329,7 +390,17 @@ function AccountsTab() {
             </thead>
             <tbody>
               {data.users.map((u) => (
-                <tr key={u.id} className={u.active ? '' : 'row-off'}>
+                <tr key={u.id} className={`${u.active ? '' : 'row-off'} ${selected.includes(u.id) ? 'row-selected' : ''}`}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`勾選 ${u.displayName}`}
+                      disabled={!canDelete(u)}
+                      title={u.role === 'player' ? '球員帳號請到球員名單刪除' : u.id === user?.id ? '不能刪除自己的帳號' : ''}
+                      checked={selected.includes(u.id)}
+                      onChange={(e) => setSelected((s) => (e.target.checked ? [...s, u.id] : s.filter((x) => x !== u.id)))}
+                    />
+                  </td>
                   <td>
                     <code>{u.loginId}</code>
                   </td>
