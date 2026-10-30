@@ -2,9 +2,9 @@ import type { ExamScore } from '../types';
 
 // 與後端 apps-script/Code.gs 的 EXAM_SUBJECTS 相同（7＝一年級、8＝二年級、9＝三年級）
 export const EXAM_SUBJECTS: Record<7 | 8 | 9, string[]> = {
-  7: ['國文', '數學', '英文', '社會', '自然', '建教'],
-  8: ['國文', '數學', '英文', '地理', '歷史', '公民', '理化', '建教'],
-  9: ['國文', '數學', '英文', '地理', '歷史', '公民', '理化', '地科生物'],
+  7: ['國文', '數學', '英文', '社會', '自然', '建教', '作文'],
+  8: ['國文', '數學', '英文', '地理', '歷史', '公民', '理化', '建教', '作文'],
+  9: ['國文', '數學', '英文', '地理', '歷史', '公民', '理化', '地科生物', '作文'],
 };
 
 export const GRADE_LABELS: Record<7 | 8 | 9, string> = { 7: '一年級', 8: '二年級', 9: '三年級' };
@@ -73,7 +73,7 @@ export interface ExamChange {
   schoolRank: number | null;
 }
 
-/** 和上一次段考比較；平均分數比總分公平（一年級 6 科、二三年級 8 科） */
+/** 和上一次段考比較；平均分數比總分公平（一年級 7 科、二三年級 9 科） */
 export function examChange(cur: Pick<ExamScore, 'scores' | 'grade' | 'classRank' | 'schoolRank'>, prev?: Pick<ExamScore, 'scores' | 'grade' | 'classRank' | 'schoolRank'>): ExamChange {
   if (!prev) return { avg: null, total: null, classRank: null, schoolRank: null };
   const a1 = examAverage(cur.scores);

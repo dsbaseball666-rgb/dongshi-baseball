@@ -5,8 +5,9 @@ import type { Wallet } from '../types';
 
 describe('段考成績', () => {
   it('各年級科目依教練提供的清單', () => {
-    expect(EXAM_SUBJECTS[7]).toEqual(['國文', '數學', '英文', '社會', '自然', '建教']);
-    expect(EXAM_SUBJECTS[8]).toHaveLength(8);
+    expect(EXAM_SUBJECTS[7]).toEqual(['國文', '數學', '英文', '社會', '自然', '建教', '作文']);
+    expect(EXAM_SUBJECTS[8]).toHaveLength(9);
+    expect(EXAM_SUBJECTS[9]).toContain('作文');
     expect(EXAM_SUBJECTS[9]).toContain('地科生物');
   });
   it('依日期推算學年度與學期', () => {
