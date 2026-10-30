@@ -11,7 +11,7 @@ export interface ExamBatch {
   semester: '上' | '下';
   examNo: number;
   grade: 7 | 8 | 9;
-  entries: { playerId: string; scores: Record<string, number>; note: string }[];
+  entries: { playerId: string; scores: Record<string, number>; note: string; classRank: number | null; schoolRank: number | null }[];
 }
 
 /** playerId 為 null 時讀取全隊（只有教練可以） */

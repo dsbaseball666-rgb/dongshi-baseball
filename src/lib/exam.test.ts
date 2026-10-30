@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentTerm, EXAM_SUBJECTS, examAverage, examOrder, examTotal, gradeFromText, parseScore } from './exam';
+import { EXAM_SUBJECTS, currentTerm, examAverage, examChange, examOrder, examTotal, gradeFromText, parseRank, parseScore, previousExam, trendOf } from './exam';
 import { battlesLeft } from './battle';
 import type { Wallet } from '../types';
 
@@ -47,5 +47,39 @@ describe('對戰次數', () => {
   it('新的一天次數重新計算', () => {
     expect(battlesLeft(w({ battleDate: '2026-10-12', pveCount: 5, pvpCount: 3 }), '2026-10-13')).toEqual({ pve: 5, pvp: 3 });
     expect(battlesLeft(w({ battleDate: '2026-10-13', pveCount: 2, pvpCount: 3 }), '2026-10-13')).toEqual({ pve: 3, pvp: 0 });
+  });
+});
+
+describe('段考進步／退步', () => {
+  const base = { schoolYear: 115, semester: '上' as const, grade: 8 as const, note: '', createdBy: '', createdAt: '', updatedAt: '', classRank: null, schoolRank: null };
+  const r1 = { ...base, id: 'a', playerId: 'P1', examNo: 1, scores: { 國文: 70, 數學: 80 }, classRank: 10, schoolRank: 150 };
+  const r2 = { ...base, id: 'b', playerId: 'P1', examNo: 2, scores: { 國文: 80, 數學: 82 }, classRank: 6, schoolRank: 160 };
+  const other = { ...base, id: 'c', playerId: 'P2', examNo: 1, scores: { 國文: 99 } };
+
+  it('找同一位球員的上一次段考', () => {
+    expect(previousExam([r1, r2, other], r2)?.id).toBe('a');
+    expect(previousExam([r1, r2, other], r1)).toBeUndefined();
+  });
+
+  it('平均、總分、排名的變化（排名數字變小＝進步）', () => {
+    expect(examChange(r2, r1)).toEqual({ avg: 6, total: 12, classRank: 4, schoolRank: -10 });
+  });
+
+  it('年級不同（科目數不同）時不比較總分', () => {
+    expect(examChange({ ...r2, grade: 9 }, r1).total).toBeNull();
+  });
+
+  it('差距在門檻內算持平', () => {
+    expect(trendOf(0.5, 1)).toBe('flat');
+    expect(trendOf(1.5, 1)).toBe('up');
+    expect(trendOf(-2, 1)).toBe('down');
+    expect(trendOf(null)).toBeNull();
+  });
+
+  it('排名必須是 1 以上的整數', () => {
+    expect(parseRank('', 'x')).toBeNull();
+    expect(parseRank('12', 'x')).toBe(12);
+    expect(() => parseRank('0', '班排名')).toThrow();
+    expect(() => parseRank('2.5', '班排名')).toThrow();
   });
 });

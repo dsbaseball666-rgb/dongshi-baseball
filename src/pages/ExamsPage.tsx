@@ -4,12 +4,21 @@ import type { ExamScore, Player } from '../types';
 import { useStore, useTask } from '../store/DemoStore';
 import { usePlayers } from '../sources/hooks';
 import { useExamScores } from '../sources/exams';
-import { currentTerm, EXAM_SUBJECTS, examAverage, examLabel, examOrder, examTotal, GRADE_LABELS, gradeFromText, parseScore } from '../lib/exam';
+import { currentTerm, EXAM_SUBJECTS, examAverage, examChange, examLabel, examOrder, examTotal, GRADE_LABELS, gradeFromText, parseRank, parseScore, previousExam, trendOf } from '../lib/exam';
 import { formatDateTime } from '../lib/date';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, Field, LoadingState, PageHeader } from '../components/UI';
 import { LineChart } from '../components/LineChart';
 
 type Grade = 7 | 8 | 9;
+
+/** 進步／退步標籤：分數用「分」，排名用「名」 */
+function Trend({ diff, unit, threshold = 0, compact = false }: { diff: number | null; unit: '分' | '名'; threshold?: number; compact?: boolean }) {
+  const t = trendOf(diff, threshold);
+  if (t === null || diff === null) return <span className="muted small">—</span>;
+  const amount = unit === '名' ? `${Math.abs(diff)} 名` : `${diff > 0 ? '+' : ''}${diff}`;
+  if (t === 'flat') return <Badge tone="gray">→ 持平{compact ? '' : ` ${amount}`}</Badge>;
+  return <Badge tone={t === 'up' ? 'green' : 'red'}>{t === 'up' ? '↑ 進步' : '↓ 退步'} {amount}</Badge>;
+}
 
 /** 教練：一次輸入一整次段考、多位球員的成績 */
 function BatchEntry({ players }: { players: Player[] }) {
@@ -36,7 +45,7 @@ function BatchEntry({ players }: { players: Player[] }) {
   useEffect(() => {
     const next: Record<string, Record<string, string>> = {};
     existing.forEach((r) => {
-      next[r.playerId] = { 備註: r.note };
+      next[r.playerId] = { 備註: r.note, 班排名: r.classRank ? String(r.classRank) : '', 校排名: r.schoolRank ? String(r.schoolRank) : '' };
       Object.entries(r.scores).forEach(([k, v]) => (next[r.playerId][k] = String(v)));
     });
     setCells(next);
@@ -48,7 +57,7 @@ function BatchEntry({ players }: { players: Player[] }) {
   const save = async () => {
     setInputError(null);
     if (!(Number.isInteger(year) && year >= 100 && year <= 200)) return setInputError('「學年度」請輸入 100～200 的整數（例如 115）。');
-    const entries: { playerId: string; scores: Record<string, number>; note: string }[] = [];
+    const entries: { playerId: string; scores: Record<string, number>; note: string; classRank: number | null; schoolRank: number | null }[] = [];
     try {
       rows.forEach((p) => {
         const row = cells[p.id] ?? {};
@@ -57,7 +66,10 @@ function BatchEntry({ players }: { players: Player[] }) {
           const v = parseScore(row[s] ?? '', `${p.name}的${s}`);
           if (v !== null) scores[s] = v;
         });
-        if (Object.keys(scores).length > 0) entries.push({ playerId: p.id, scores, note: (row['備註'] ?? '').trim() });
+        const classRank = parseRank(row['班排名'] ?? '', `${p.name}的班排名`);
+        const schoolRank = parseRank(row['校排名'] ?? '', `${p.name}的校排名`);
+        if (Object.keys(scores).length > 0) entries.push({ playerId: p.id, scores, note: (row['備註'] ?? '').trim(), classRank, schoolRank });
+        else if (classRank !== null || schoolRank !== null) throw new Error(`${p.name}：有排名的話，也要輸入至少一科成績。`);
       });
     } catch (e) {
       return setInputError(e instanceof Error ? e.message : String(e));
@@ -121,7 +133,11 @@ function BatchEntry({ players }: { players: Player[] }) {
                 {subjects.map((s) => (
                   <th key={s}>{s}</th>
                 ))}
+                <th>總分</th>
                 <th>平均</th>
+                <th>班排名</th>
+                <th>校排名</th>
+                <th>比上次</th>
                 <th>備註</th>
               </tr>
             </thead>
@@ -131,6 +147,11 @@ function BatchEntry({ players }: { players: Player[] }) {
                 const nums = subjects.map((s) => Number(row[s])).filter((v, i) => (row[subjects[i]] ?? '').trim() !== '' && Number.isFinite(v));
                 const avg = nums.length ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 10) / 10 : null;
                 const saved = existing.some((r) => r.playerId === p.id);
+                const total = nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) * 10) / 10 : null;
+                // 和這位球員上一次段考的平均比較（即時算，輸入時就看得到）
+                const prev = previousExam(source.records, { playerId: p.id, schoolYear: year, semester, examNo });
+                const prevAvg = prev ? examAverage(prev.scores) : null;
+                const diff = avg !== null && prevAvg !== null ? Math.round((avg - prevAvg) * 10) / 10 : null;
                 return (
                   <tr key={p.id}>
                     <th scope="row" className="nowrap">
@@ -143,7 +164,17 @@ function BatchEntry({ players }: { players: Player[] }) {
                         <input className="score-input" aria-label={`${p.name} ${s}`} value={row[s] ?? ''} onChange={(e) => setCell(p.id, s, e.target.value)} inputMode="decimal" maxLength={5} />
                       </td>
                     ))}
+                    <td className="nowrap">{total ?? '—'}</td>
                     <td className="nowrap">{avg ?? '—'}</td>
+                    <td>
+                      <input className="score-input" aria-label={`${p.name} 班排名`} value={row['班排名'] ?? ''} onChange={(e) => setCell(p.id, '班排名', e.target.value)} inputMode="numeric" maxLength={4} />
+                    </td>
+                    <td>
+                      <input className="score-input" aria-label={`${p.name} 校排名`} value={row['校排名'] ?? ''} onChange={(e) => setCell(p.id, '校排名', e.target.value)} inputMode="numeric" maxLength={4} />
+                    </td>
+                    <td className="nowrap" title={prev ? `上次：${examLabel(prev)} 平均 ${prevAvg ?? '—'}` : '沒有上一次的成績'}>
+                      <Trend diff={diff} unit="分" threshold={1} compact />
+                    </td>
                     <td>
                       <input className="note-input" aria-label={`${p.name} 備註`} value={row['備註'] ?? ''} onChange={(e) => setCell(p.id, '備註', e.target.value)} maxLength={100} />
                     </td>
@@ -162,6 +193,7 @@ function BatchEntry({ players }: { players: Player[] }) {
         </button>
       </div>
       <p className="muted small">● 代表這位球員這次段考已經有成績；再次儲存會更新成表格中的分數。要刪除整筆成績，請到「個人成績」按「刪除」。</p>
+      <p className="muted small">總分、平均會自動算；班排名、校排名請依學校的成績單輸入（可以留白）。「比上次」是和這位球員上一次段考的平均分數比較：多 1 分以上算進步、少 1 分以上算退步。</p>
     </Card>
   );
 }
@@ -173,9 +205,16 @@ function PersonalView({ playerId, canDelete }: { playerId: string; canDelete: bo
   const [chartKey, setChartKey] = useState('平均');
   const records = useMemo(() => [...source.records].sort((a, b) => examOrder(a) - examOrder(b)), [source.records]);
   const latest = records[records.length - 1];
+  const prevOf = (r: ExamScore) => previousExam(records, r);
+  const latestPrev = latest ? prevOf(latest) : undefined;
+  const latestChange = latest ? examChange(latest, latestPrev) : null;
   const subjectsSeen = Array.from(new Set(records.flatMap((r) => EXAM_SUBJECTS[r.grade] ?? Object.keys(r.scores))));
   const chartData = records
-    .map((r) => ({ date: examLabel(r), short: `${r.schoolYear}${r.semester}-${r.examNo}`, value: chartKey === '平均' ? examAverage(r.scores) : r.scores[chartKey] }))
+    .map((r) => ({
+      date: examLabel(r),
+      short: `${r.schoolYear}${r.semester}-${r.examNo}`,
+      value: chartKey === '平均' ? examAverage(r.scores) : chartKey === '總分' ? examTotal(r.scores) : chartKey === '班排名' ? r.classRank : chartKey === '校排名' ? r.schoolRank : r.scores[chartKey],
+    }))
     .filter((d): d is { date: string; short: string; value: number } => typeof d.value === 'number');
 
   if (source.loading)
@@ -214,10 +253,39 @@ function PersonalView({ playerId, canDelete }: { playerId: string; canDelete: bo
               <strong>{examTotal(latest.scores)}</strong>
             </div>
             <div className="stat">
-              <span>科目數</span>
-              <strong>{Object.keys(latest.scores).length}</strong>
+              <span>班排名</span>
+              <strong>{latest.classRank ?? '—'}</strong>
+            </div>
+            <div className="stat">
+              <span>校排名</span>
+              <strong>{latest.schoolRank ?? '—'}</strong>
             </div>
           </div>
+          {latestPrev && latestChange ? (
+            <div className="exam-compare">
+              <span className="small muted">和上一次（{examLabel(latestPrev)}）比較：</span>
+              <span className="exam-compare-item">
+                平均 <Trend diff={latestChange.avg} unit="分" threshold={1} />
+              </span>
+              {latestChange.total !== null && (
+                <span className="exam-compare-item">
+                  總分 <Trend diff={latestChange.total} unit="分" threshold={3} />
+                </span>
+              )}
+              {latestChange.classRank !== null && (
+                <span className="exam-compare-item">
+                  班排名 {latestPrev.classRank}→{latest.classRank} <Trend diff={latestChange.classRank} unit="名" />
+                </span>
+              )}
+              {latestChange.schoolRank !== null && (
+                <span className="exam-compare-item">
+                  校排名 {latestPrev.schoolRank}→{latest.schoolRank} <Trend diff={latestChange.schoolRank} unit="名" />
+                </span>
+              )}
+            </div>
+          ) : (
+            <p className="small muted">這是第一次段考成績，下一次就會自動比較進步或退步。</p>
+          )}
           <div className="exam-subjects">
             {(EXAM_SUBJECTS[latest.grade] ?? []).map((s) => (
               <div key={s} className="exam-subject">
@@ -235,6 +303,9 @@ function PersonalView({ playerId, canDelete }: { playerId: string; canDelete: bo
         actions={
           <select aria-label="選擇科目" value={chartKey} onChange={(e) => setChartKey(e.target.value)}>
             <option value="平均">平均</option>
+            <option value="總分">總分</option>
+            <option value="班排名">班排名</option>
+            <option value="校排名">校排名</option>
             {subjectsSeen.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -246,7 +317,14 @@ function PersonalView({ playerId, canDelete }: { playerId: string; canDelete: bo
         {chartData.length === 0 ? (
           <EmptyState icon="📉" title="這個科目還沒有成績" />
         ) : (
-          <LineChart data={chartData} better="higher" label={chartKey} format={(v) => `${Math.round(v * 10) / 10}`} minSpan={10} xLabel={(d) => (d as (typeof chartData)[number]).short} />
+          <LineChart
+            data={chartData}
+            better={chartKey.endsWith('排名') ? 'lower' : 'higher'}
+            label={chartKey}
+            format={(v) => (chartKey.endsWith('排名') ? `第 ${Math.round(v)} 名` : `${Math.round(v * 10) / 10}`)}
+            minSpan={chartKey.endsWith('排名') ? 5 : 10}
+            xLabel={(d) => (d as (typeof chartData)[number]).short}
+          />
         )}
       </Card>
       <Card title="歷次段考" icon="📚">
@@ -260,6 +338,9 @@ function PersonalView({ playerId, canDelete }: { playerId: string; canDelete: bo
                 <th>各科成績</th>
                 <th>平均</th>
                 <th>總分</th>
+                <th>班排名</th>
+                <th>校排名</th>
+                <th>比上次</th>
                 <th>備註</th>
                 {canDelete && <th>操作</th>}
               </tr>
@@ -283,6 +364,19 @@ function PersonalView({ playerId, canDelete }: { playerId: string; canDelete: bo
                     </td>
                     <td>{examAverage(r.scores) ?? '—'}</td>
                     <td>{examTotal(r.scores)}</td>
+                    <td>{r.classRank ?? '—'}</td>
+                    <td>{r.schoolRank ?? '—'}</td>
+                    <td className="nowrap">
+                      {(() => {
+                        const c = examChange(r, prevOf(r));
+                        return (
+                          <div className="exam-trends">
+                            <Trend diff={c.avg} unit="分" threshold={1} compact />
+                            {c.schoolRank !== null ? <span className="small">校 <Trend diff={c.schoolRank} unit="名" /></span> : c.classRank !== null ? <span className="small">班 <Trend diff={c.classRank} unit="名" /></span> : null}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td>{r.note || '—'}</td>
                     {canDelete && (
                       <td>

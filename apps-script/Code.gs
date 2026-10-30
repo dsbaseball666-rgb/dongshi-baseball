@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.8.8';
+const API_VERSION = '5.8.9';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -46,7 +46,8 @@ const SCHEMA = {
   RewardLogs: ['id', 'playerId', 'source', 'detail', 'exp', 'points', 'balls', 'at'],
   QuizPasses: ['id', 'playerId', 'articleId', 'date', 'at'],
   // 5.2：段考成績、對戰
-  ExamScores: ['id', 'playerId', 'schoolYear', 'semester', 'examNo', 'grade', 'scores', 'note', 'createdBy', 'createdAt', 'updatedAt'],
+  // classRank／schoolRank（5.8.9）：班排名、校排名（教練輸入；空白＝沒有）
+  ExamScores: ['id', 'playerId', 'schoolYear', 'semester', 'examNo', 'grade', 'scores', 'note', 'createdBy', 'createdAt', 'updatedAt', 'classRank', 'schoolRank'],
   Battles: ['id', 'playerId', 'mode', 'opponentPlayerId', 'opponentName', 'date', 'status', 'state', 'log', 'result', 'createdAt', 'updatedAt'],
   // 5.4：家長、老師、教練三方平台
   Invites: ['id', 'codeSalt', 'codeHash', 'role', 'playerIds', 'label', 'status', 'createdById', 'createdBy', 'createdAt', 'expiresAt', 'usedBy', 'usedAt'],
@@ -2022,6 +2023,7 @@ function parseExam_(r) {
   return {
     id: r.id, playerId: r.playerId, schoolYear: Number(r.schoolYear), semester: r.semester, examNo: Number(r.examNo), grade: Number(r.grade),
     scores: parseJson_(r.scores, {}), note: r.note, createdBy: r.createdBy, createdAt: r.createdAt, updatedAt: r.updatedAt,
+    classRank: r.classRank ? Number(r.classRank) : null, schoolRank: r.schoolRank ? Number(r.schoolRank) : null,
   };
 }
 
@@ -2079,8 +2081,12 @@ function saveExamScores_(ctx) {
     if (!p) throw apiError_('NOT_FOUND', '找不到球員 ' + playerId + '。');
     if (seen[playerId]) throw apiError_('INVALID', p.name + ' 重複出現。');
     seen[playerId] = true;
-    return { playerId: playerId, scores: examScores_(e.scores, key.grade, p.name), note: str_(e.note, '備註', { max: 100 }) };
+    return {
+      playerId: playerId, scores: examScores_(e.scores, key.grade, p.name), note: str_(e.note, '備註', { max: 100 }),
+      classRank: intStr_(e.classRank, p.name + '的班排名', 1, 3000), schoolRank: intStr_(e.schoolRank, p.name + '的校排名', 1, 3000),
+    };
   });
+  ensureHeaders_('ExamScores');
   const existing = readAll_('ExamScores').filter((r) => Number(r.schoolYear) === key.schoolYear && r.semester === key.semester && Number(r.examNo) === key.examNo);
   const now = nowIso_();
   const added = [];
@@ -2088,11 +2094,11 @@ function saveExamScores_(ctx) {
   clean.forEach((e) => {
     const old = existing.find((r) => r.playerId === e.playerId);
     if (old) {
-      const row = Object.assign({}, old, { grade: key.grade, scores: JSON.stringify(e.scores), note: e.note, updatedAt: now });
+      const row = Object.assign({}, old, { grade: key.grade, scores: JSON.stringify(e.scores), note: e.note, classRank: e.classRank, schoolRank: e.schoolRank, updatedAt: now });
       updateRow_('ExamScores', old._row, row);
       saved.push(row);
     } else {
-      const row = Object.assign({ id: newId_('EX'), playerId: e.playerId }, key, { scores: JSON.stringify(e.scores), note: e.note, createdBy: a.displayName, createdAt: now, updatedAt: now });
+      const row = Object.assign({ id: newId_('EX'), playerId: e.playerId }, key, { scores: JSON.stringify(e.scores), note: e.note, classRank: e.classRank, schoolRank: e.schoolRank, createdBy: a.displayName, createdAt: now, updatedAt: now });
       added.push(row);
       saved.push(row);
     }

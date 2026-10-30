@@ -331,6 +331,9 @@ export interface ExamScore {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /** 班排名、校排名（教練輸入；沒有就是 null） */
+  classRank: number | null;
+  schoolRank: number | null;
 }
 
 /** MonsterProgress 工作表：怪獸經驗與成長紀錄 */

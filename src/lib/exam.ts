@@ -56,3 +56,50 @@ export function parseScore(raw: string, label: string): number | null {
   if (Math.round(n * 10) / 10 !== n) throw new Error(`${label}的成績最多一位小數。`);
   return n;
 }
+
+/** 同一位球員，比這次早的最近一次段考；沒有就回傳 undefined */
+export function previousExam(records: ExamScore[], cur: Pick<ExamScore, 'playerId' | 'schoolYear' | 'semester' | 'examNo'>): ExamScore | undefined {
+  const order = examOrder(cur);
+  return records.filter((r) => r.playerId === cur.playerId && examOrder(r) < order).sort((a, b) => examOrder(b) - examOrder(a))[0];
+}
+
+export interface ExamChange {
+  /** 平均分數的變化（這次－上次） */
+  avg: number | null;
+  /** 總分的變化；年級不同（科目數不同）時不比較 */
+  total: number | null;
+  /** 排名進步幾名（上次－這次；正數＝進步） */
+  classRank: number | null;
+  schoolRank: number | null;
+}
+
+/** 和上一次段考比較；平均分數比總分公平（一年級 6 科、二三年級 8 科） */
+export function examChange(cur: Pick<ExamScore, 'scores' | 'grade' | 'classRank' | 'schoolRank'>, prev?: Pick<ExamScore, 'scores' | 'grade' | 'classRank' | 'schoolRank'>): ExamChange {
+  if (!prev) return { avg: null, total: null, classRank: null, schoolRank: null };
+  const a1 = examAverage(cur.scores);
+  const a0 = examAverage(prev.scores);
+  const r = (v: number) => Math.round(v * 10) / 10;
+  return {
+    avg: a1 !== null && a0 !== null ? r(a1 - a0) : null,
+    total: cur.grade === prev.grade && Object.keys(cur.scores).length && Object.keys(prev.scores).length ? r(examTotal(cur.scores) - examTotal(prev.scores)) : null,
+    classRank: cur.classRank && prev.classRank ? prev.classRank - cur.classRank : null,
+    schoolRank: cur.schoolRank && prev.schoolRank ? prev.schoolRank - cur.schoolRank : null,
+  };
+}
+
+/** 進步／退步／持平：分數差在 threshold 以內算持平 */
+export function trendOf(diff: number | null, threshold = 0): 'up' | 'down' | 'flat' | null {
+  if (diff === null) return null;
+  if (diff > threshold) return 'up';
+  if (diff < -threshold) return 'down';
+  return 'flat';
+}
+
+/** 解析排名：空白回傳 null；不是 1 以上的整數時丟出錯誤 */
+export function parseRank(raw: string, label: string): number | null {
+  const t = raw.trim();
+  if (t === '') return null;
+  const n = Number(t);
+  if (!Number.isInteger(n) || n < 1 || n > 3000) throw new Error(`${label}必須是 1 以上的整數。`);
+  return n;
+}

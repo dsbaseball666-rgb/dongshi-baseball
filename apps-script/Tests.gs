@@ -347,6 +347,16 @@ function runSelfTests() {
     expectFail('超過一位小數會被拒絕', call('saveExamScores', Object.assign({}, exam, { entries: [{ playerId: 'TEST-PA', scores: { 國文: 85.55 } }] }), tCoach), 'INVALID');
     expectFail('沒有輸入任何科目會被拒絕', call('saveExamScores', Object.assign({}, exam, { entries: [{ playerId: 'TEST-PA', scores: {} }] }), tCoach), 'INVALID');
     expectFail('不存在的年級會被拒絕', call('saveExamScores', Object.assign({}, exam, { grade: 6, entries: [{ playerId: 'TEST-PA', scores: { 國文: 80 } }] }), tCoach), 'INVALID');
+    // 班排名、校排名（用 109 學年度另一筆，測完刪掉，不影響後面的測試）
+    const rkKey = { schoolYear: 109, semester: '上', examNo: 1, grade: 8 };
+    const rk = call('saveExamScores', Object.assign({}, rkKey, { entries: [{ playerId: 'TEST-PA', scores: { 國文: 80 }, classRank: '5', schoolRank: 120 }] }), tCoach, Utilities.getUuid());
+    const rkRec = rk.ok ? rk.data.records[0] : null;
+    results.push([!!rkRec && rkRec.classRank === 5 && rkRec.schoolRank === 120, '段考可以輸入班排名、校排名', rk.ok ? JSON.stringify(rkRec && [rkRec.classRank, rkRec.schoolRank]) : rk.error]);
+    expectFail('排名必須是 1 以上的整數', call('saveExamScores', Object.assign({}, rkKey, { entries: [{ playerId: 'TEST-PA', scores: { 國文: 80 }, classRank: '0' }] }), tCoach), 'INVALID');
+    expectFail('排名不能有小數', call('saveExamScores', Object.assign({}, rkKey, { entries: [{ playerId: 'TEST-PA', scores: { 國文: 80 }, schoolRank: '3.5' }] }), tCoach), 'INVALID');
+    const rk2 = call('saveExamScores', Object.assign({}, rkKey, { entries: [{ playerId: 'TEST-PA', scores: { 國文: 82 } }] }), tCoach, Utilities.getUuid());
+    results.push([rk2.ok && rk2.data.records[0].classRank === null && rk2.data.records[0].schoolRank === null, '排名留白會清除原本的排名', rk2.ok ? '' : rk2.error]);
+    if (rkRec) call('deleteExamScore', { id: rkRec.id }, tCoach, Utilities.getUuid());
     expectFail('球員不能看別人的段考成績', call('listExamScores', { playerId: 'TEST-PB' }, tPA), 'FORBIDDEN');
     expectFail('球員不能讀全隊段考成績', call('listExamScores', {}, tPA), 'FORBIDDEN');
     expectOk('家長可以看自己子女的段考成績', call('listExamScores', { playerId: 'TEST-PA' }, tPar));

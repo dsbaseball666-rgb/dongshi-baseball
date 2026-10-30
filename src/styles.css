@@ -744,3 +744,8 @@ td.strong { font-weight: 700; }
 .batch-item.unmatched { border-color: var(--red); border-style: dashed; }
 .batch-item img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 4px; }
 .batch-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 段考：進步／退步 */
+.exam-compare { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 10px; padding: 8px 10px; background: #f7f8fb; border-radius: var(--radius); }
+.exam-compare-item { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
+.exam-trends { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
