@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import type { AttendanceRecord, AttendanceStatus, BudgetItem, Game, Player, PlanSession, PlayerProfile, PracticeDay, PracticeType, Tournament, Transaction } from '../types';
+import type { AttendanceRecord, AttendanceStatus, BudgetItem, Game, Player, PlayerProfile, PracticeDay, PracticeType, Tournament, TrainingWeek, Transaction } from '../types';
 import { useStore } from '../store/DemoStore';
 import { useCloudQuery } from './hooks';
 import { addDays } from '../lib/date';
@@ -171,47 +171,78 @@ export function useTournaments() {
 
 /* ───────── 教練練球安排 ───────── */
 
-export const PLAN_ITEMS = ['熱身', '體能', '傳接球', '守備', '打擊', '投球', '捕手訓練', '跑壘', '戰術', '重量訓練', '比賽', '自主練習', '緩和伸展'];
-/** 常用時段（點選後自動帶入時間；「自訂」可以自己選時間） */
-export const PLAN_SLOTS = [
-  { slot: '晨練', startTime: '06:30', endTime: '07:30' },
-  { slot: '午休', startTime: '12:20', endTime: '13:10' },
-  { slot: '下午', startTime: '16:00', endTime: '18:00' },
-  { slot: '晚間', startTime: '18:30', endTime: '20:00' },
-];
-export const PLAN_LOCATIONS = ['校內球場', '室內打擊場', '重訓室', '體育館', '外地'];
 /** 06:00～21:30，每 15 分鐘一格 */
 export const TIME_OPTIONS = Array.from({ length: 63 }, (_, i) => {
   const m = 6 * 60 + i * 15;
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 });
 
-export type PlanInput = Pick<PlanSession, 'date' | 'startTime' | 'endTime' | 'slot' | 'items' | 'playerIds' | 'location' | 'note'>;
+/* ───────── 每週訓練課表（組別 × 星期幾） ───────── */
 
-interface PlanData {
-  sessions: PlanSession[];
+/** 每天預設的練球時間（星期一～日）：一二三五 17:00–18:00、四 15:00–17:00、六 13:30–18:00、日休兵 */
+export const WEEK_DAY_DEFAULTS: { off: boolean; startTime: string; endTime: string; note: string }[] = [
+  { off: false, startTime: '17:00', endTime: '18:00', note: '' },
+  { off: false, startTime: '17:00', endTime: '18:00', note: '' },
+  { off: false, startTime: '17:00', endTime: '18:00', note: '' },
+  { off: false, startTime: '15:00', endTime: '17:00', note: '' },
+  { off: false, startTime: '17:00', endTime: '18:00', note: '' },
+  {
+    off: false,
+    startTime: '13:30',
+    endTime: '18:00',
+    note: '熱身階段 13:30-14:10\n第一階段 14:15-14:45\n第二階段 14:50-15:40\n第三階段 15:50-16:40\n整理場地 16:40-16:50\n第四階段 16:50-17:20\n收操 17:20-18:00',
+  },
+  { off: true, startTime: '', endTime: '', note: '' },
+];
+export const DEFAULT_GROUPS = ['投手組', '內野手組', '打擊組'];
+/** 常用的訓練主題（也可以自己打） */
+export const CELL_TITLES = ['練球日', '重訓日', '投球訓練', '牛棚日', '放鬆日', '敏捷訓練', '守備練習', '守備訓練', '打擊練習', '打擊訓練', '體能訓練', '比賽'];
+
+interface TrainingWeekData {
+  week: TrainingWeek | null;
+  /** 上一週（教練才有，可以複製） */
+  last: TrainingWeek | null;
   names: Record<string, string>;
   today: string;
 }
 
-export function usePlan(from: string, to: string) {
+export function useTrainingWeek(weekStart: string) {
   const { mode, api } = useStore();
-  const q = useCloudQuery<PlanData>(mode === 'cloud', `plan-${from}-${to}`, () => api<PlanData>('listPlan', { from, to }, '讀取練球安排'), { sessions: [], names: {}, today: '' });
-  const saveWeek = useCallback(
-    async (weekStart: string, sessions: PlanInput[]) => {
-      await api('savePlanWeek', { weekStart, sessions }, '儲存練球安排');
+  const q = useCloudQuery<TrainingWeekData>(mode === 'cloud', `training-week-${weekStart}`, () => api<TrainingWeekData>('getTrainingWeek', { weekStart }, '讀取訓練課表'), {
+    week: null,
+    last: null,
+    names: {},
+    today: '',
+  });
+  const save = useCallback(
+    async (week: TrainingWeek) => {
+      await api('saveTrainingWeek', { weekStart: week.weekStart, groups: week.groups, days: week.days, cells: week.cells }, '儲存訓練課表');
       q.reload();
     },
     [api, q.reload],
   );
-  return { ...q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, saveWeek };
+  return { ...q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, save };
 }
 
-/** 「全隊」或「王小明、李小華…等 8 人」 */
-export function participantText(ids: string[], names: Record<string, string>, max = 6): string {
-  if (ids.length === 0) return '全隊';
-  const list = ids.map((id) => names[id] ?? '（已刪除）');
-  return list.length > max ? `${list.slice(0, max).join('、')}…等 ${list.length} 人` : `${list.join('、')}（${list.length} 人）`;
+/** 一週的空白課表：預設時間與三個組別 */
+export function blankTrainingWeek(weekStart: string): TrainingWeek {
+  return {
+    weekStart,
+    groups: DEFAULT_GROUPS.map((name, i) => ({ id: `g${i + 1}`, name, playerIds: [] })),
+    days: WEEK_DAY_DEFAULTS.map((d, i) => ({ date: addDays(weekStart, i), ...d })),
+    cells: [],
+  };
+}
+
+/** 把上一週的課表搬到這一週（日期往後 7 天） */
+export function shiftTrainingWeek(w: TrainingWeek, weekStart: string): TrainingWeek {
+  const move = (date: string) => addDays(date, 7);
+  return {
+    weekStart,
+    groups: w.groups.map((g) => ({ ...g, playerIds: [...g.playerIds] })),
+    days: w.days.map((d) => ({ ...d, date: move(d.date) })),
+    cells: w.cells.map((c) => ({ ...c, date: move(c.date), playerIds: [...c.playerIds] })),
+  };
 }
 
 /* ───────── 球衣號碼（只在賽事用） ───────── */

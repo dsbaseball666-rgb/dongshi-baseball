@@ -1,8 +1,8 @@
-import type { AttendanceStatus, Game, PracticeDay, Player, Tournament } from '../../types';
+import type { AttendanceStatus, Game, PracticeDay, Player, Tournament, TrainingWeek } from '../../types';
 import { addDays, formatDateTime, nowIso } from '../../lib/date';
-import { renderPhotoGrid, renderTableImage, type ImageCell } from '../../lib/noticeImage';
+import { renderPhotoGrid, renderTableImage, renderWeekGridImage, type ImageCell } from '../../lib/noticeImage';
 import { loadImage } from '../../lib/photo';
-import { ATTENDANCE_STATUSES, jerseyOrder, PRACTICE_ICONS, participantText, PRESENT_STATUSES, shortDate, type PlanInput } from '../../sources/team';
+import { ATTENDANCE_STATUSES, jerseyOrder, PRACTICE_ICONS, PRESENT_STATUSES, shortDate } from '../../sources/team';
 
 const TYPE_COLORS: Record<string, { color: string; bg: string; row?: string }> = {
   練球: { color: '#1b5e20', bg: '#d7f0d2' },
@@ -20,6 +20,18 @@ export const STATUS_COLORS: Record<AttendanceStatus, { color: string; bg: string
   公假: { color: '#4a4f63', bg: '#e1e4ec' },
   缺席: { color: '#b71c1c', bg: '#fbd5d3' },
 };
+
+/** 星期一～日 */
+export const WEEKDAY_NAMES = ['一', '二', '三', '四', '五', '六', '日'];
+
+/** 格子裡的訓練項目：一行一項，行首加 # 是灰色小標題 */
+export function cellLines(text: string): { text: string; sub: boolean }[] {
+  return text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => (/^[#＃]/.test(l) ? { text: l.replace(/^[#＃]\s*/, ''), sub: true } : { text: l, sub: false }));
+}
 
 const footer = () => `東勢國中棒球隊・${formatDateTime(nowIso())} 產生`;
 
@@ -96,33 +108,24 @@ export function attendanceImage(date: string, players: Player[], records: Record
   });
 }
 
-/** 一週練球安排圖片（每個時段一列） */
-export function planImage(monday: string, sessions: PlanInput[], names: Record<string, string>): HTMLCanvasElement {
-  const list = sessions.slice().sort((a, b) => (a.date + a.startTime < b.date + b.startTime ? -1 : 1));
-  const days = new Set(list.map((s) => s.date)).size;
-  return renderTableImage({
-    title: '🗓️ 一週練球安排',
-    subtitle: `${shortDate(monday)} ～ ${shortDate(addDays(monday, 6))}`,
-    summary: `共 ${days} 天、${list.length} 個時段`,
-    columns: [
-      { label: '日期', width: 140 },
-      { label: '時段', width: 170 },
-      { label: '訓練內容', width: 230 },
-      { label: '參加人員', width: 260 },
-      { label: '地點／備註', width: 200 },
-    ],
-    rows: list.map((s, i): ImageCell[] => [
-      // 同一天的第二個時段起，日期留白（空字串會顯示「—」，所以用全形空白）
-      { text: i > 0 && list[i - 1].date === s.date ? '　' : shortDate(s.date), bold: true },
-      { text: `${s.startTime}–${s.endTime}${s.slot ? '\n' + s.slot : ''}`, bold: true },
-      { text: s.items.join('、') },
-      { text: participantText(s.playerIds, names, 12), color: s.playerIds.length === 0 ? '#b71c1c' : undefined, bold: s.playerIds.length === 0 },
-      { text: [s.location, s.note && `※ ${s.note}`].filter(Boolean).join('\n') },
-    ]),
-    // 同一天的時段用同一個底色，方便分辨
-    rowBg: (i) => {
-      const order = Array.from(new Set(list.map((s) => s.date)));
-      return order.indexOf(list[i].date) % 2 ? '#f3f6fb' : '#ffffff';
+/** 每週訓練課表圖片：組別 × 星期幾（像紙本課表） */
+export function trainingWeekImage(w: TrainingWeek, names: Record<string, string>): HTMLCanvasElement {
+  const nameList = (ids: string[]) => ids.map((id) => names[id] ?? '（已刪除）').join('、');
+  return renderWeekGridImage({
+    title: '🗓️ 每週訓練課表',
+    subtitle: `${shortDate(w.weekStart)} ～ ${shortDate(addDays(w.weekStart, 6))}`,
+    days: w.days.map((d, i) => ({
+      date: `${Number(d.date.slice(5, 7))}月${Number(d.date.slice(8))}日`,
+      weekday: '禮拜' + WEEKDAY_NAMES[i],
+      time: d.startTime ? `${d.startTime}-${d.endTime}` : '',
+      off: d.off,
+      note: d.note,
+    })),
+    groups: w.groups.map((g) => ({ name: g.name, members: nameList(g.playerIds) })),
+    cell: (gi, di) => {
+      const c = w.cells.find((x) => x.groupId === w.groups[gi].id && x.date === w.days[di].date);
+      if (!c) return null;
+      return { title: c.title, lines: cellLines(c.lines), players: nameList(c.playerIds) };
     },
     footer: footer(),
   });

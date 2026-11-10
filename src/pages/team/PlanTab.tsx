@@ -1,42 +1,30 @@
 import { useMemo, useState } from 'react';
-import type { PlanSession, Player } from '../../types';
+import type { Player, TrainingCell, TrainingGroup, TrainingWeek } from '../../types';
 import { useTask } from '../../store/DemoStore';
 import { usePlayers } from '../../sources/hooks';
-import { byNumber, mondayOf, participantText, PLAN_ITEMS, PLAN_LOCATIONS, PLAN_SLOTS, TIME_OPTIONS, usePlan, type PlanInput } from '../../sources/team';
-import { addDays, todayStr } from '../../lib/date';
+import { blankTrainingWeek, byNumber, CELL_TITLES, mondayOf, shiftTrainingWeek, TIME_OPTIONS, useTrainingWeek, WEEK_DAY_DEFAULTS } from '../../sources/team';
+import { todayStr } from '../../lib/date';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, LoadingCard } from '../../components/UI';
 import { LineImageButton } from '../../components/LineImage';
 import { WeekNav } from './WeekNav';
-import { planImage } from './images';
+import { cellLines, trainingWeekImage, WEEKDAY_NAMES } from './images';
 
-const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
-
-/** 快速選人的群組（依年級、守備位置） */
-const GROUPS: { label: string; test: (p: Player) => boolean }[] = [
-  { label: '七年級', test: (p) => p.grade.includes('七') },
-  { label: '八年級', test: (p) => p.grade.includes('八') },
-  { label: '九年級', test: (p) => p.grade.includes('九') },
+/** 快速選人（依年級、守備位置） */
+const QUICK: { label: string; test: (p: Player) => boolean }[] = [
   { label: '投手', test: (p) => p.position.includes('投手') },
   { label: '捕手', test: (p) => p.position.includes('捕手') },
   { label: '內野', test: (p) => p.position.includes('內野') },
   { label: '外野', test: (p) => p.position.includes('外野') },
+  { label: '七年級', test: (p) => p.grade.includes('七') },
+  { label: '八年級', test: (p) => p.grade.includes('八') },
+  { label: '九年級', test: (p) => p.grade.includes('九') },
 ];
 
-const byTime = (a: PlanInput, b: PlanInput) => (a.date + a.startTime < b.date + b.startTime ? -1 : 1);
-const dayLabel = (date: string, monday: string) => {
-  const i = Math.round((Date.parse(date) - Date.parse(monday)) / 86400000);
-  return `週${WEEKDAYS[i] ?? ''} ${Number(date.slice(5, 7))}/${Number(date.slice(8))}`;
-};
 const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
-
-/** 同一天裡被排進兩個時段的球員（全隊也算）；回傳球員編號 */
-export function dayDuplicates(list: PlanInput[]): string[] {
-  if (list.length > 1 && list.some((s) => s.playerIds.length === 0)) return ['全隊'];
-  const seen = new Set<string>();
-  const dup = new Set<string>();
-  list.forEach((s) => s.playerIds.forEach((id) => (seen.has(id) ? dup.add(id) : seen.add(id))));
-  return Array.from(dup);
-}
+const md = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8))}`;
+const cellOf = (w: TrainingWeek, groupId: string, date: string) => w.cells.find((c) => c.groupId === groupId && c.date === date);
+let groupSeq = 0;
+const newGroupId = () => `g${Date.now().toString(36)}${++groupSeq}`;
 
 function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   const options = value && !TIME_OPTIONS.includes(value) ? [value, ...TIME_OPTIONS] : TIME_OPTIONS;
@@ -50,364 +38,387 @@ function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: s
   );
 }
 
-/* ───────── 一天的安排：所有時段在同一個畫面勾選、填好 ───────── */
-
-interface Row {
-  key: string;
-  on: boolean;
-  slot: string;
-  startTime: string;
-  endTime: string;
-  items: string[];
-  allTeam: boolean;
-  playerIds: string[];
-  location: string;
-  note: string;
-}
-
-let rowSeq = 0;
-const blankRow = (slot: string, startTime: string, endTime: string): Row => ({
-  key: `r${++rowSeq}`, on: false, slot, startTime, endTime, items: [], allTeam: false, playerIds: [], location: '校內球場', note: '',
-});
-const fromSession = (s: PlanInput): Row => ({
-  key: `r${++rowSeq}`, on: true, slot: s.slot || '自訂', startTime: s.startTime, endTime: s.endTime, items: s.items,
-  allTeam: s.playerIds.length === 0, playerIds: s.playerIds, location: s.location, note: s.note,
-});
-
-/** 常用時段一定列出來（沒排的先不勾）；這天原本就有的時段直接帶入 */
-function initialRows(sessions: PlanInput[]): Row[] {
-  const rest = sessions.slice().sort(byTime);
-  const rows = PLAN_SLOTS.map((p) => {
-    const i = rest.findIndex((s) => s.slot === p.slot);
-    return i >= 0 ? fromSession(rest.splice(i, 1)[0]) : blankRow(p.slot, p.startTime, p.endTime);
-  });
-  return [...rows, ...rest.map(fromSession)].sort((a, b) => (a.startTime < b.startTime ? -1 : 1));
-}
-
-function RowEditor({ row, players, taken, teamSlot, othersBusy, onChange, onRemove }: {
-  row: Row;
-  players: Player[];
-  /** 已經排在其他時段的球員 → 時段名稱 */
-  taken: Map<string, string>;
-  /** 其他時段已經排「全隊」時的時段名稱 */
-  teamSlot: string | null;
-  /** 其他時段已經有人 */
-  othersBusy: boolean;
-  /** 傳入修改內容，或用目前這列算出修改內容（連續快速點選時不會漏掉） */
-  onChange: (patch: Partial<Row> | ((r: Row) => Partial<Row>)) => void;
-  onRemove?: () => void;
-}) {
-  const free = players.filter((p) => !taken.has(p.id));
-  const set = onChange;
-  const groupState = (g: (typeof GROUPS)[number]) => {
-    const ids = free.filter(g.test).map((p) => p.id);
-    return { ids, on: ids.length > 0 && ids.every((id) => row.playerIds.includes(id)) };
-  };
+/** 選球員的按鈕群（已經在別組的人會變灰色並標出組名） */
+function PlayerPicker({ players, selected, taken, onChange }: { players: Player[]; selected: string[]; taken?: Map<string, string>; onChange: (ids: string[] | ((ids: string[]) => string[])) => void }) {
+  const free = players.filter((p) => !taken?.has(p.id));
   return (
-    <div className={`day-row ${row.on ? 'on' : ''}`}>
-      <div className="day-row-head">
-        <label className="check day-row-toggle">
-          <input
-            type="checkbox"
-            checked={row.on}
-            onChange={(e) => set({ on: e.target.checked, allTeam: e.target.checked && !row.playerIds.length ? !othersBusy && !teamSlot : row.allTeam })}
-          />
-          <strong>{row.slot}</strong>
-        </label>
-        <span className="time-pair">
-          <TimeSelect label={`${row.slot} 開始時間`} value={row.startTime} onChange={(v) => set({ startTime: v, on: true })} />
-          <span>到</span>
-          <TimeSelect label={`${row.slot} 結束時間`} value={row.endTime} onChange={(v) => set({ endTime: v, on: true })} />
-        </span>
-        {row.on && (
-          <span className="small muted">
-            {row.allTeam ? '👥 全隊' : `👥 ${row.playerIds.length} 人`}
-            {row.items.length > 0 && `・${row.items.join('、')}`}
-          </span>
-        )}
-        {onRemove && (
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onRemove}>
-            移除
+    <>
+      <div className="roll-status group-row">
+        <span className="muted small">快速選：</span>
+        {QUICK.map((g) => {
+          const ids = free.filter(g.test).map((p) => p.id);
+          if (ids.length === 0) return null;
+          const on = ids.every((id) => selected.includes(id));
+          return (
+            <button
+              key={g.label}
+              type="button"
+              className={`status-btn ${on ? 'on tone-purple' : ''}`}
+              aria-pressed={on}
+              onClick={() => onChange((cur) => (on ? cur.filter((id) => !ids.includes(id)) : Array.from(new Set([...cur, ...ids]))))}
+            >
+              {g.label}（{ids.length}）
+            </button>
+          );
+        })}
+        {taken && (
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange(free.map((p) => p.id))}>
+            還沒分組的全部選
           </button>
         )}
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange([])}>
+          全部取消
+        </button>
       </div>
-      {row.on && (
-        <div className="day-row-body">
-          <div className="field">
-            <span className="field-label">訓練內容（可複選）</span>
-            <div className="roll-status">
-              {PLAN_ITEMS.map((i) => (
-                <button key={i} type="button" className={`status-btn ${row.items.includes(i) ? 'on tone-yellow' : ''}`} aria-pressed={row.items.includes(i)} onClick={() => set((r) => ({ items: toggle(r.items, i) }))}>
-                  {i}
-                </button>
-              ))}
-            </div>
-          </div>
+      <div className="player-chips">
+        {players.map((p) => {
+          const other = taken?.get(p.id);
+          const on = selected.includes(p.id);
+          return (
+            <button
+              key={p.id}
+              type="button"
+              className={`status-btn ${on ? 'on tone-blue' : ''} ${other ? 'taken' : ''}`}
+              aria-pressed={on}
+              disabled={!!other}
+              title={other ? `已經在「${other}」` : undefined}
+              onClick={() => onChange((cur) => toggle(cur, p.id))}
+            >
+              {p.number && <span className="chip-no">#{p.number}</span>}
+              {p.name}
+              {other && <span className="chip-taken">（{other}）</span>}
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
 
-          <div className="field">
-            <span className="field-label">參加人員{!row.allTeam && `（已選 ${row.playerIds.length} 人）`}</span>
-            {teamSlot ? (
-              <Alert kind="warn">「{teamSlot}」已經排了全隊，這天沒有其他球員可以排。要分組的話，先把「{teamSlot}」改成指定球員。</Alert>
-            ) : (
-              <>
-                <div className="roll-status">
-                  <button
-                    type="button"
-                    className={`status-btn ${row.allTeam ? 'on tone-red' : ''}`}
-                    aria-pressed={row.allTeam}
-                    disabled={othersBusy}
-                    title={othersBusy ? '其他時段已經有球員，不能再選全隊' : undefined}
-                    onClick={() => set({ allTeam: true, playerIds: [] })}
-                  >
-                    👥 全隊
-                  </button>
-                  <button type="button" className={`status-btn ${!row.allTeam ? 'on tone-red' : ''}`} aria-pressed={!row.allTeam} onClick={() => set({ allTeam: false })}>
-                    指定球員
-                  </button>
-                  {othersBusy && <span className="muted small">其他時段已經有人，不能選全隊</span>}
-                </div>
-                {!row.allTeam && (
+/* ───────── 課表（組別 × 星期幾） ───────── */
+function WeekGrid({ week, names, myIds, pick, selected }: {
+  week: TrainingWeek;
+  names: Record<string, string>;
+  myIds: string[];
+  /** 編輯時點格子 */
+  pick?: (groupId: string, date: string) => void;
+  selected?: { groupId: string; date: string } | null;
+}) {
+  const today = todayStr();
+  const nameList = (ids: string[]) => ids.map((id) => names[id] ?? '（已刪除）').join('、');
+  const hasNotes = week.days.some((d) => !d.off && d.note);
+  return (
+    <div className="tw-wrap">
+      <table className="tw-grid">
+        <thead>
+          <tr>
+            <th className="tw-corner" rowSpan={3}>
+              {md(week.weekStart)} 這週
+            </th>
+            {week.days.map((d) => (
+              <th key={d.date} className={`${d.off ? 'tw-off' : ''} ${d.date === today ? 'tw-today' : ''}`}>
+                {Number(d.date.slice(5, 7))}月{Number(d.date.slice(8))}日
+              </th>
+            ))}
+          </tr>
+          <tr>
+            {week.days.map((d, i) => (
+              <th key={d.date} className={d.off ? 'tw-off' : ''}>
+                禮拜{WEEKDAY_NAMES[i]}
+                {d.date === today && <Badge tone="red">今天</Badge>}
+              </th>
+            ))}
+          </tr>
+          <tr>
+            {week.days.map((d) => (
+              <th key={d.date} className={`tw-time ${d.off ? 'tw-off' : ''}`}>
+                {d.off ? '休兵日' : `${d.startTime}–${d.endTime}`}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {week.groups.map((g, gi) => (
+            <tr key={g.id} className={g.playerIds.some((id) => myIds.includes(id)) ? 'tw-mine' : ''}>
+              <th className="tw-group" scope="row">
+                <strong>{g.name}</strong>
+                <span className="small">{g.playerIds.length ? nameList(g.playerIds) : '（全隊）'}</span>
+              </th>
+              {week.days.map((d) => {
+                if (d.off) {
+                  return gi === 0 ? (
+                    <td key={d.date} className="tw-off tw-rest" rowSpan={week.groups.length}>
+                      休兵日
+                    </td>
+                  ) : null;
+                }
+                const c = cellOf(week, g.id, d.date);
+                const isSel = selected?.groupId === g.id && selected.date === d.date;
+                const body = c ? (
                   <>
-                    <div className="roll-status group-row">
-                      <span className="muted small">快速選：</span>
-                      {GROUPS.map((g) => {
-                        const st = groupState(g);
-                        if (st.ids.length === 0) return null;
-                        return (
-                          <button
-                            key={g.label}
-                            type="button"
-                            className={`status-btn ${st.on ? 'on tone-purple' : ''}`}
-                            aria-pressed={st.on}
-                            onClick={() => set((r) => ({ playerIds: st.on ? r.playerIds.filter((id) => !st.ids.includes(id)) : Array.from(new Set([...r.playerIds, ...st.ids])) }))}
-                          >
-                            {g.label}（{st.ids.length}）
-                          </button>
-                        );
-                      })}
-                      <button type="button" className="btn btn-sm btn-ghost" onClick={() => set({ playerIds: free.map((p) => p.id) })}>
-                        還沒排的全部選
-                      </button>
-                      <button type="button" className="btn btn-sm btn-ghost" onClick={() => set({ playerIds: [] })}>
-                        全部取消
-                      </button>
-                    </div>
-                    <div className="player-chips">
-                      {players.map((p) => {
-                        const other = taken.get(p.id);
-                        const on = row.playerIds.includes(p.id);
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            className={`status-btn ${on ? 'on tone-blue' : ''} ${other ? 'taken' : ''}`}
-                            aria-pressed={on}
-                            disabled={!!other}
-                            title={other ? `已排在「${other}」` : undefined}
-                            onClick={() => set((r) => ({ playerIds: toggle(r.playerIds, p.id) }))}
-                          >
-                            {p.number && <span className="chip-no">#{p.number}</span>}
-                            {p.name}
-                            {other && <span className="chip-taken">（{other}）</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    {c.title && <div className="tw-title">{c.title}</div>}
+                    {cellLines(c.lines).map((l, k) => (
+                      <div key={k} className={l.sub ? 'tw-sub' : 'tw-line'}>
+                        {l.text}
+                      </div>
+                    ))}
+                    {c.playerIds.length > 0 && <div className={`tw-players ${c.playerIds.some((id) => myIds.includes(id)) ? 'is-mine' : ''}`}>👤 {nameList(c.playerIds)}</div>}
                   </>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className="field">
-            <span className="field-label">地點</span>
-            <div className="roll-status">
-              {PLAN_LOCATIONS.map((l) => (
-                <button key={l} type="button" className={`status-btn ${row.location === l ? 'on tone-gray' : ''}`} onClick={() => set({ location: l })}>
-                  {l}
-                </button>
-              ))}
-              <input className="inline-input" value={row.location} maxLength={40} onChange={(e) => set({ location: e.target.value })} placeholder="或自己輸入" aria-label={`${row.slot} 地點`} />
-            </div>
-          </div>
-          <input value={row.note} maxLength={200} onChange={(e) => set({ note: e.target.value })} placeholder="備註（例如：投手組每人 40 球、請帶捕手裝備）" aria-label={`${row.slot} 備註`} />
-        </div>
-      )}
+                ) : (
+                  <div className="muted small tw-empty">{pick ? '＋ 點這裡填寫' : '—'}</div>
+                );
+                return (
+                  <td key={d.date} className={`${isSel ? 'tw-selected' : ''} ${d.date === today ? 'tw-today' : ''}`}>
+                    {pick ? (
+                      <button type="button" className="tw-cell-btn" onClick={() => pick(g.id, d.date)} aria-label={`編輯 ${g.name} ${md(d.date)}`}>
+                        {body}
+                      </button>
+                    ) : (
+                      body
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+          {hasNotes && (
+            <tr className="tw-notes">
+              <th scope="row">📌 備註</th>
+              {week.days.map((d) => (d.off ? null : <td key={d.date}>{d.note}</td>))}
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function DayEditor({ date, monday, players, sessions, draft, onSave, onCancel }: {
-  date: string;
-  monday: string;
-  players: Player[];
-  sessions: PlanInput[];
-  draft: PlanInput[];
-  onSave: (list: PlanInput[], copyTo: string[], next: boolean) => void;
-  onCancel: () => void;
-}) {
-  const [rows, setRows] = useState<Row[]>(() => initialRows(sessions));
-  const [copyTo, setCopyTo] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const dates = WEEKDAYS.map((_, i) => addDays(monday, i));
-  const nextDate = dates[dates.indexOf(date) + 1];
-  const patch = (key: string, p: Partial<Row> | ((r: Row) => Partial<Row>)) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...(typeof p === 'function' ? p(r) : p) } : r)));
-
-  const context = (row: Row) => {
-    const taken = new Map<string, string>();
-    let teamSlot: string | null = null;
-    rows.forEach((o) => {
-      if (o.key === row.key || !o.on) return;
-      if (o.allTeam) teamSlot = o.slot;
-      else o.playerIds.forEach((id) => taken.set(id, o.slot));
-    });
-    return { taken, teamSlot, othersBusy: taken.size > 0 || teamSlot !== null };
-  };
-
-  const submit = (next: boolean) => {
-    const on = rows.filter((r) => r.on);
-    for (const r of on) {
-      if (!r.startTime || !r.endTime) return setError(`「${r.slot}」請選開始和結束時間。`);
-      if (r.endTime <= r.startTime) return setError(`「${r.slot}」的結束時間要晚於開始時間。`);
-      if (!r.allTeam && r.playerIds.length === 0) return setError(`「${r.slot}」還沒選參加人員。`);
-    }
-    const list: PlanInput[] = on.map((r) => ({
-      date, startTime: r.startTime, endTime: r.endTime, slot: r.slot, items: PLAN_ITEMS.filter((i) => r.items.includes(i)),
-      playerIds: r.allTeam ? [] : players.filter((p) => r.playerIds.includes(p.id)).map((p) => p.id), location: r.location.trim(), note: r.note.trim(),
-    }));
-    if (dayDuplicates(list).length) return setError('同一天有球員被排進兩個時段，請檢查。');
-    const overwrite = copyTo.filter((d) => draft.some((s) => s.date === d));
-    if (overwrite.length && !window.confirm(`${overwrite.map((d) => dayLabel(d, monday)).join('、')} 原本已經有安排，要換成這一天的內容嗎？`)) return;
-    onSave(list, copyTo, next);
-  };
-
-  const onCount = rows.filter((r) => r.on).length;
+/* ───────── 編輯：組別與組員 ───────── */
+function GroupsEditor({ groups, players, onChange }: { groups: TrainingGroup[]; players: Player[]; onChange: (g: TrainingGroup[]) => void }) {
+  const [open, setOpen] = useState<string | null>(groups[0]?.id ?? null);
+  const patch = (id: string, p: Partial<TrainingGroup> | ((g: TrainingGroup) => Partial<TrainingGroup>)) =>
+    onChange(groups.map((g) => (g.id === id ? { ...g, ...(typeof p === 'function' ? p(g) : p) } : g)));
   return (
-    <Card title={`安排 ${dayLabel(date, monday)}`} icon="✏️" className="plan-editor">
-      <p className="muted small">勾選這天要練的時段，直接在下面填好內容和人員。同一天每位球員只能排在一個時段，已經排過的人會變灰色。</p>
-      <div className="day-rows">
-        {rows.map((r) => {
-          const c = context(r);
+    <Card title="① 分組與組員" icon="👥">
+      <p className="muted small">每一組勾選組員（跟以前一樣點選球員）。同一位球員一週只能在一個組別；沒有勾任何人的組別代表全隊。</p>
+      <div className="tw-groups">
+        {groups.map((g) => {
+          const taken = new Map<string, string>();
+          groups.forEach((o) => o.id !== g.id && o.playerIds.forEach((id) => taken.set(id, o.name)));
           return (
-            <RowEditor
-              key={r.key}
-              row={r}
-              players={players}
-              taken={c.taken}
-              teamSlot={c.teamSlot}
-              othersBusy={c.othersBusy}
-              onChange={(p) => patch(r.key, p)}
-              onRemove={PLAN_SLOTS.some((s) => s.slot === r.slot) ? undefined : () => setRows((rs) => rs.filter((x) => x.key !== r.key))}
-            />
+            <div key={g.id} className={`day-row ${open === g.id ? 'on' : ''}`}>
+              <div className="day-row-head">
+                <input className="inline-input tw-group-name" value={g.name} maxLength={12} onChange={(e) => patch(g.id, { name: e.target.value })} aria-label="組別名稱" />
+                <span className="small muted">{g.playerIds.length ? `${g.playerIds.length} 人` : '全隊'}</span>
+                <button type="button" className="btn btn-sm" onClick={() => setOpen(open === g.id ? null : g.id)}>
+                  {open === g.id ? '收起' : '選組員'}
+                </button>
+                {groups.length > 1 && (
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => window.confirm(`刪除「${g.name}」？這一組的課表內容也會一起刪除。`) && onChange(groups.filter((x) => x.id !== g.id))}>
+                    刪除
+                  </button>
+                )}
+              </div>
+              {open === g.id && (
+                <div className="day-row-body">
+                  <PlayerPicker players={players} selected={g.playerIds} taken={taken} onChange={(v) => patch(g.id, (cur) => ({ playerIds: typeof v === 'function' ? v(cur.playerIds) : v }))} />
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
-      <button type="button" className="btn btn-sm" onClick={() => setRows((rs) => [...rs, { ...blankRow('自訂', '', ''), on: true }])}>
-        ＋ 加一個自訂時段（例如同時段分組）
-      </button>
+      {groups.length < 10 && (
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => {
+            const id = newGroupId();
+            onChange([...groups, { id, name: `第${groups.length + 1}組`, playerIds: [] }]);
+            setOpen(id);
+          }}
+        >
+          ＋ 新增組別
+        </button>
+      )}
+    </Card>
+  );
+}
 
-      <div className="field copy-to">
-        <span className="field-label">也套用到其他天（相同的安排）</span>
+/* ───────── 編輯：每天時間 ───────── */
+function DaysEditor({ week, onChange }: { week: TrainingWeek; onChange: (w: TrainingWeek) => void }) {
+  const set = (i: number, p: Partial<TrainingWeek['days'][number]>) => onChange({ ...week, days: week.days.map((d, k) => (k === i ? { ...d, ...p } : d)) });
+  return (
+    <Card title="② 每天時間" icon="⏰">
+      <p className="muted small">已經帶入固定時間：一、二、三、五 17:00–18:00，四 15:00–17:00，六 13:30–18:00，日休兵。放假或改時間時在這裡調整。</p>
+      <div className="tw-days">
+        {week.days.map((d, i) => (
+          <div key={d.date} className={`tw-day-row ${d.off ? 'is-off' : ''}`}>
+            <strong>
+              禮拜{WEEKDAY_NAMES[i]} {md(d.date)}
+            </strong>
+            <label className="check">
+              <input type="checkbox" checked={d.off} onChange={(e) => set(i, e.target.checked ? { off: true } : { off: false, startTime: d.startTime || WEEK_DAY_DEFAULTS[i].startTime || '17:00', endTime: d.endTime || WEEK_DAY_DEFAULTS[i].endTime || '18:00' })} />
+              休兵日
+            </label>
+            {!d.off && (
+              <span className="time-pair">
+                <TimeSelect label={`禮拜${WEEKDAY_NAMES[i]} 開始`} value={d.startTime} onChange={(v) => set(i, { startTime: v })} />
+                <span>到</span>
+                <TimeSelect label={`禮拜${WEEKDAY_NAMES[i]} 結束`} value={d.endTime} onChange={(v) => set(i, { endTime: v })} />
+              </span>
+            )}
+            {!d.off && <textarea rows={d.note ? Math.min(7, d.note.split('\n').length) : 1} value={d.note} maxLength={300} onChange={(e) => set(i, { note: e.target.value })} placeholder="當天備註（可空白），例如分段時間" aria-label={`禮拜${WEEKDAY_NAMES[i]} 備註`} />}
+          </div>
+        ))}
+      </div>
+      <button type="button" className="btn btn-sm btn-ghost" onClick={() => window.confirm('把每天的時間和備註恢復成預設值？') && onChange({ ...week, days: WEEK_DAY_DEFAULTS.map((d, i) => ({ ...d, date: week.days[i].date })) })}>
+        恢復預設時間
+      </button>
+    </Card>
+  );
+}
+
+/* ───────── 編輯：一格的內容 ───────── */
+function CellEditor({ week, groupId, date, players, onDone, onCancel }: {
+  week: TrainingWeek;
+  groupId: string;
+  date: string;
+  players: Player[];
+  onDone: (cells: TrainingCell[]) => void;
+  onCancel: () => void;
+}) {
+  const group = week.groups.find((g) => g.id === groupId)!;
+  const di = week.days.findIndex((d) => d.date === date);
+  const old = cellOf(week, groupId, date);
+  const [title, setTitle] = useState(old?.title ?? '');
+  const [lines, setLines] = useState(old?.lines ?? '');
+  const [ids, setIds] = useState<string[]>(old?.playerIds ?? []);
+  const [showPlayers, setShowPlayers] = useState((old?.playerIds.length ?? 0) > 0);
+  const [copyDays, setCopyDays] = useState<string[]>([]);
+  const [copyGroups, setCopyGroups] = useState<string[]>([]);
+  const otherDays = week.days.filter((d) => d.date !== date && !d.off);
+  const otherGroups = week.groups.filter((g) => g.id !== groupId);
+
+  const finish = () => {
+    const cell = { title: title.trim(), lines: lines.replace(/\s+$/, ''), playerIds: players.filter((p) => ids.includes(p.id)).map((p) => p.id) };
+    const targets = [{ groupId, date }, ...copyDays.map((d) => ({ groupId, date: d })), ...copyGroups.map((g) => ({ groupId: g, date }))];
+    const overwrite = targets.slice(1).filter((t) => cellOf(week, t.groupId, t.date));
+    if (overwrite.length && !window.confirm(`有 ${overwrite.length} 格原本已經有內容，要換成這一格的內容嗎？`)) return;
+    const keep = week.cells.filter((c) => !targets.some((t) => t.groupId === c.groupId && t.date === c.date));
+    const empty = !cell.title && !cell.lines.trim() && cell.playerIds.length === 0;
+    onDone(empty ? keep : [...keep, ...targets.map((t) => ({ ...t, ...cell }))]);
+  };
+
+  return (
+    <Card title={`③ ${group.name}・禮拜${WEEKDAY_NAMES[di]} ${md(date)}`} icon="✏️" className="tw-cell-editor">
+      <div className="field">
+        <span className="field-label">訓練主題（黃色標題）</span>
         <div className="roll-status">
-          {dates
-            .filter((d) => d !== date)
-            .map((d) => (
-              <button key={d} type="button" className={`status-btn ${copyTo.includes(d) ? 'on tone-blue' : ''}`} aria-pressed={copyTo.includes(d)} onClick={() => setCopyTo((x) => toggle(x, d))}>
-                {dayLabel(d, monday)}
-                {draft.some((s) => s.date === d) && ' •'}
+          {CELL_TITLES.map((t) => (
+            <button key={t} type="button" className={`status-btn ${title === t ? 'on tone-yellow' : ''}`} onClick={() => setTitle(title === t ? '' : t)}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <input value={title} maxLength={20} onChange={(e) => setTitle(e.target.value)} placeholder="或自己輸入，例如：投球訓練(操場)" aria-label="訓練主題" />
+      </div>
+      <div className="field">
+        <span className="field-label">訓練項目（一行一項）</span>
+        <textarea rows={8} value={lines} maxLength={1500} onChange={(e) => setLines(e.target.value)} placeholder={'#訓練階段(6人一起執行)\n肩關節重訓(配合槓片)\n爆發分腿蹲(配合啞鈴)\n#做完兩組交換\n農夫走路(雙邊平衡)'} aria-label="訓練項目" />
+        <span className="muted small">行首加「#」會變成灰色小標題（例如「#熱身階段」）。</span>
+      </div>
+      <div className="field">
+        <label className="check">
+          <input type="checkbox" checked={showPlayers} onChange={(e) => setShowPlayers(e.target.checked)} />
+          這一格另外指定球員（例如：特守 江柏丞＋劉玟德＋曾昱翔）
+        </label>
+        {showPlayers && <PlayerPicker players={players} selected={ids} onChange={(v) => setIds((cur) => (typeof v === 'function' ? v(cur) : v))} />}
+      </div>
+      {(otherDays.length > 0 || otherGroups.length > 0) && (
+        <div className="field copy-to">
+          <span className="field-label">相同內容也套用到</span>
+          <div className="roll-status">
+            {otherDays.map((d) => (
+              <button key={d.date} type="button" className={`status-btn ${copyDays.includes(d.date) ? 'on tone-blue' : ''}`} aria-pressed={copyDays.includes(d.date)} onClick={() => setCopyDays((x) => toggle(x, d.date))}>
+                {group.name} 禮拜{WEEKDAY_NAMES[week.days.indexOf(d)]}
+                {cellOf(week, groupId, d.date) && ' •'}
               </button>
             ))}
+            {otherGroups.map((g) => (
+              <button key={g.id} type="button" className={`status-btn ${copyGroups.includes(g.id) ? 'on tone-purple' : ''}`} aria-pressed={copyGroups.includes(g.id)} onClick={() => setCopyGroups((x) => toggle(x, g.id))}>
+                {g.name} 這天
+                {cellOf(week, g.id, date) && ' •'}
+              </button>
+            ))}
+          </div>
+          <span className="muted small">有「•」的格子原本已經有內容，套用後會被換掉。</span>
         </div>
-        <span className="muted small">有「•」的日子原本已經有安排，套用後會被換掉。</span>
-      </div>
-
-      {error && <Alert kind="error">{error}</Alert>}
+      )}
       <div className="form-actions">
-        <button type="button" className="btn btn-primary" onClick={() => submit(false)}>
-          ✔ 完成這一天（{onCount} 個時段{copyTo.length ? `，另外套用 ${copyTo.length} 天` : ''}）
+        <button type="button" className="btn btn-primary" onClick={finish}>
+          ✔ 完成這一格{copyDays.length + copyGroups.length ? `（另外套用 ${copyDays.length + copyGroups.length} 格）` : ''}
         </button>
-        {nextDate && (
-          <button type="button" className="btn" onClick={() => submit(true)}>
-            ✔ 完成，接著排 {dayLabel(nextDate, monday)} →
+        {old && (
+          <button type="button" className="btn btn-ghost" onClick={() => window.confirm('清空這一格？') && onDone(week.cells.filter((c) => c !== old))}>
+            清空這一格
           </button>
         )}
         <button type="button" className="btn btn-ghost" onClick={onCancel}>
           取消
         </button>
       </div>
-      <p className="muted small">完成後會先放在下面的週表，最後記得按「💾 儲存這一週」。</p>
+      <p className="muted small">完成後會先放在上面的課表，最後記得按「💾 儲存這一週」。</p>
     </Card>
   );
 }
 
-/* ───────── 一個時段卡片 ───────── */
-function SessionCard({ s, names, highlight }: { s: PlanInput; names: Record<string, string>; highlight?: boolean }) {
-  return (
-    <div className={`plan-session ${highlight ? 'mine' : ''}`}>
-      <div className="plan-time">
-        <strong>
-          {s.startTime}–{s.endTime}
-        </strong>{' '}
-        {s.slot && <Badge tone="green">{s.slot}</Badge>}
-      </div>
-      {s.items.length > 0 && <div className="small">🏋️ {s.items.join('、')}</div>}
-      <div className="small">👥 {participantText(s.playerIds, names)}</div>
-      {s.location && <div className="small muted">📍 {s.location}</div>}
-      {s.note && <div className="small muted">💬 {s.note}</div>}
-    </div>
-  );
-}
-
-const toInput = (s: PlanSession): PlanInput => ({ date: s.date, startTime: s.startTime, endTime: s.endTime, slot: s.slot, items: s.items, playerIds: s.playerIds, location: s.location, note: s.note });
-
 export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[] }) {
   const today = todayStr();
   const [monday, setMonday] = useState(() => mondayOf(today));
-  const plan = usePlan(addDays(monday, -7), addDays(monday, 6));
+  const data = useTrainingWeek(monday);
   const { players } = usePlayers();
   const active = useMemo(() => players.filter((p) => p.active).sort(byNumber), [players]);
   const task = useTask();
-  const [draft, setDraft] = useState<PlanInput[] | null>(null);
-  const [editDate, setEditDate] = useState<string | null>(null);
+  const [draft, setDraft] = useState<TrainingWeek | null>(null);
+  const [cell, setCell] = useState<{ groupId: string; date: string } | null>(null);
   const editing = draft !== null;
+  const names = useMemo(() => ({ ...data.names, ...Object.fromEntries(players.map((p) => [p.id, p.name])) }), [data.names, players]);
+  const week = data.week;
+  const shown = draft ?? week;
 
-  const week = plan.sessions.filter((s) => s.date >= monday).map(toInput);
-  const lastWeek = plan.sessions.filter((s) => s.date < monday).map(toInput);
-  const shown = (draft ?? week).slice().sort(byTime);
-  // 教練編輯時，用目前的球員名單顯示姓名
-  const names = useMemo(() => ({ ...plan.names, ...Object.fromEntries(players.map((p) => [p.id, p.name])) }), [plan.names, players]);
-  const dates = WEEKDAYS.map((_, i) => addDays(monday, i));
-
-  const openDay = (date: string | null) => {
-    setEditDate(date);
-    if (date) setTimeout(() => document.querySelector('.plan-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-  };
   const moveTo = (m: string) => {
-    if (editing && !window.confirm('這一週的安排還沒儲存，確定要離開嗎？')) return;
+    if (editing && !window.confirm('這一週的課表還沒儲存，確定要離開嗎？')) return;
     setDraft(null);
-    setEditDate(null);
+    setCell(null);
     setMonday(m);
   };
-  const copyLastWeek = () => {
-    if (draft && draft.length && !window.confirm('要用上週的安排取代目前這週的內容嗎？')) return;
-    setDraft(lastWeek.map((s) => ({ ...s, date: addDays(s.date, 7) })));
+  const openCell = (groupId: string, date: string) => {
+    setCell({ groupId, date });
+    setTimeout(() => document.querySelector('.tw-cell-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   };
-  const applyDay = (list: PlanInput[], copyTo: string[], next: boolean) => {
-    if (!draft || !editDate) return;
-    const days = [editDate, ...copyTo];
-    const copies = copyTo.flatMap((d) => list.map((s) => ({ ...s, date: d })));
-    setDraft([...draft.filter((s) => !days.includes(s.date)), ...list, ...copies]);
-    openDay(next ? dates[dates.indexOf(editDate) + 1] ?? null : null);
+  const setGroups = (groups: TrainingGroup[]) => {
+    if (!draft) return;
+    const ids = groups.map((g) => g.id);
+    setDraft({ ...draft, groups, cells: draft.cells.filter((c) => ids.includes(c.groupId)) });
+    if (cell && !ids.includes(cell.groupId)) setCell(null);
+  };
+  const copyLast = () => {
+    if (!data.last) return;
+    if (draft && draft.cells.length && !window.confirm('要用上一週的課表（分組、時間、內容）取代目前這週嗎？')) return;
+    setDraft(shiftTrainingWeek(data.last, monday));
+    setCell(null);
   };
   const save = async () => {
     if (!draft) return;
-    const r = await task.run(() => plan.saveWeek(monday, draft), '已儲存這一週的練球安排。');
+    const bad = draft.groups.find((g) => !g.name.trim());
+    if (bad) return window.alert('有組別沒有名稱。');
+    const r = await task.run(() => data.save({ ...draft, groups: draft.groups.map((g) => ({ ...g, name: g.name.trim() })) }), '已儲存這一週的訓練課表。');
     if (r.ok) {
       setDraft(null);
-      setEditDate(null);
+      setCell(null);
     }
   };
-  const badDays = dates.filter((d) => dayDuplicates(shown.filter((s) => s.date === d)).length > 0);
 
   return (
     <>
@@ -415,86 +426,73 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
         <WeekNav monday={monday} onMove={moveTo} />
         {coach && !editing && (
           <div className="form-actions">
-            <button type="button" className="btn btn-primary" onClick={() => setDraft(week)} disabled={plan.loading}>
-              ✏️ 安排這一週
+            <button type="button" className="btn btn-primary" onClick={() => setDraft(week ?? blankTrainingWeek(monday))} disabled={data.loading}>
+              ✏️ {week ? '編輯這一週' : '安排這一週'}
             </button>
-            <LineImageButton key={monday} make={() => planImage(monday, week, names)} filename={`練球安排-${monday}.png`} title="一週練球安排" disabled={week.length === 0} />
+            {!week && data.last && (
+              <button type="button" className="btn" onClick={copyLast}>
+                📄 複製上週的課表
+              </button>
+            )}
+            <LineImageButton key={monday} make={() => trainingWeekImage(week!, names)} filename={`訓練課表-${monday}.png`} title="每週訓練課表" disabled={!week} />
           </div>
         )}
         {editing && (
           <>
             <div className="form-actions">
-              <button type="button" className="btn btn-primary" onClick={() => openDay(dates[0])}>
-                ✏️ 從週一開始排
-              </button>
-              <button type="button" className="btn" onClick={copyLastWeek} disabled={lastWeek.length === 0}>
-                📄 複製上週（{lastWeek.length} 個時段）
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={() => draft.length && window.confirm('確定清空這一週的全部時段？') && setDraft([])}>
-                清空這週
+              {data.last && (
+                <button type="button" className="btn" onClick={copyLast}>
+                  📄 複製上週（分組、時間、內容）
+                </button>
+              )}
+              <button type="button" className="btn btn-ghost" onClick={() => window.confirm('清空這一週的課表內容（分組和時間保留）？') && setDraft({ ...draft, cells: [] })}>
+                清空課表內容
               </button>
             </div>
-            <Alert kind={badDays.length ? 'error' : 'warn'}>
-              正在編輯：共 {draft.length} 個時段。點每一天的「安排這天」修改。
-              {badDays.length > 0 && ` ${badDays.map((d) => dayLabel(d, monday)).join('、')} 有球員被排進兩個時段，請修正後再儲存。`}
-            </Alert>
+            <Alert kind="warn">正在編輯：先分好組、確認每天時間，再點課表上的格子填寫內容，最後按「💾 儲存這一週」。</Alert>
           </>
         )}
-        {!coach && <p className="muted small">這裡只會顯示全隊，以及有{myIds.length > 1 ? '你的孩子（學生）' : '你'}參加的時段。</p>}
+        {!coach && <p className="muted small">這裡只會顯示有{myIds.length > 1 ? '你的孩子（學生）' : '你'}的組別。</p>}
       </Card>
 
-      {editing && editDate && (
-        <DayEditor
-          key={editDate}
-          date={editDate}
-          monday={monday}
-          players={active}
-          sessions={draft.filter((s) => s.date === editDate)}
-          draft={draft}
-          onSave={applyDay}
-          onCancel={() => setEditDate(null)}
-        />
-      )}
+      {editing && <GroupsEditor groups={draft.groups} players={active} onChange={setGroups} />}
+      {editing && <DaysEditor week={draft} onChange={setDraft} />}
 
-      {plan.error && <Alert kind="error">{plan.error}</Alert>}
-      {plan.loading ? (
-        <LoadingCard text="讀取練球安排…" />
-      ) : !editing && week.length === 0 ? (
+      {data.error && <Alert kind="error">{data.error}</Alert>}
+      {data.loading ? (
+        <LoadingCard text="讀取訓練課表…" />
+      ) : !shown ? (
         <Card>
-          <EmptyState icon="🗓️" title="這一週還沒有練球安排" hint={coach ? '按「安排這一週」開始，一天一個畫面排好所有時段，也可以複製上週。' : '教練還沒有排這一週。'} />
+          <EmptyState icon="🗓️" title="這一週還沒有訓練課表" hint={coach ? '按「安排這一週」開始：分組、每天時間已經帶好，點格子填寫內容就可以了。' : '教練還沒有排這一週。'} />
         </Card>
       ) : (
-        <div className="plan-week">
-          {dates.map((date) => {
-            const list = shown.filter((s) => s.date === date);
-            return (
-              <section key={date} className={`plan-day ${date === today ? 'is-today' : ''} ${date === editDate ? 'is-editing' : ''}`}>
-                <div className="day-head">
-                  <strong>{dayLabel(date, monday)}</strong>
-                  {date === today && <Badge tone="red">今天</Badge>}
-                </div>
-                {list.length === 0 && <div className="muted small">（沒有安排）</div>}
-                {list.map((s, i) => (
-                  <SessionCard key={`${s.date}-${s.startTime}-${s.slot}-${i}`} s={s} names={names} highlight={!coach && s.playerIds.some((id) => myIds.includes(id))} />
-                ))}
-                {badDays.includes(date) && <div className="small danger-text">⚠️ 有球員被排進兩個時段</div>}
-                {editing && (
-                  <button type="button" className="btn btn-sm" onClick={() => openDay(date)}>
-                    ✏️ 安排這天
-                  </button>
-                )}
-              </section>
-            );
-          })}
-        </div>
+        <Card title={editing ? '③ 點格子填寫內容' : '每週訓練課表'} icon="🗓️">
+          <WeekGrid week={shown} names={names} myIds={coach ? [] : myIds} pick={editing ? openCell : undefined} selected={cell} />
+          {!editing && week?.updatedBy && <p className="muted small">最後更新：{week.updatedBy}</p>}
+        </Card>
+      )}
+
+      {editing && cell && draft.groups.some((g) => g.id === cell.groupId) && (
+        <CellEditor
+          key={`${cell.groupId}-${cell.date}`}
+          week={draft}
+          groupId={cell.groupId}
+          date={cell.date}
+          players={active}
+          onDone={(cells) => {
+            setDraft({ ...draft, cells });
+            setCell(null);
+          }}
+          onCancel={() => setCell(null)}
+        />
       )}
 
       {editing && (
         <Card>
           <ActionFeedback action={task} />
           <div className="form-actions">
-            <button type="button" className="btn btn-primary" onClick={save} disabled={task.pending || badDays.length > 0}>
-              💾 儲存這一週（{draft.length} 個時段）
+            <button type="button" className="btn btn-primary" onClick={save} disabled={task.pending}>
+              💾 儲存這一週（{draft.groups.length} 組、{draft.cells.length} 格）
             </button>
             <button
               type="button"
@@ -503,7 +501,7 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
               onClick={() => {
                 if (window.confirm('放棄這次的修改？')) {
                   setDraft(null);
-                  setEditDate(null);
+                  setCell(null);
                 }
               }}
             >

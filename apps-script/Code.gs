@@ -14,7 +14,7 @@
  *   - 所有寫入使用 LockService，並以 requestId 防止重複提交。
  */
 
-const API_VERSION = '5.8.10';
+const API_VERSION = '5.9.0';
 const TZ = 'Asia/Taipei';
 const SESSION_SECONDS = 6 * 60 * 60; // CacheService 上限 6 小時
 const LOGIN_MAX_FAILS = 5;
@@ -66,6 +66,8 @@ const SCHEMA = {
   Games: ['id', 'tournamentId', 'date', 'time', 'opponent', 'location', 'side', 'ourScore', 'oppScore', 'note', 'createdById', 'createdAt', 'updatedAt', 'meetTime', 'meetPlace', 'departTime'],
   // 5.8：教練練球安排（一天多個時段、指定參加人員；playerIds 空白＝全隊）
   TrainingPlans: ['id', 'date', 'startTime', 'endTime', 'slot', 'items', 'playerIds', 'location', 'note', 'createdById', 'updatedBy', 'createdAt', 'updatedAt'],
+  // 5.9：每週訓練課表（組別 × 星期幾的表格）；一週一列，groups／days／cells 用 JSON 存
+  TrainingWeeks: ['id', 'weekStart', 'groups', 'days', 'cells', 'createdById', 'updatedBy', 'createdAt', 'updatedAt'],
 };
 
 // 遊戲規則（與前端示範模式相同）
@@ -300,6 +302,8 @@ const ROUTES = {
   deleteGame: { roles: COACH, write: true, fn: deleteGame_ },
   listPlan: { roles: ALL_ROLES, fn: listPlan_ },
   savePlanWeek: { roles: COACH, write: true, fn: savePlanWeek_ },
+  getTrainingWeek: { roles: ALL_ROLES, fn: getTrainingWeek_ },
+  saveTrainingWeek: { roles: COACH, write: true, fn: saveTrainingWeek_ },
 };
 
 function doGet() {
@@ -1761,6 +1765,11 @@ function adminDeletePlayer_(ctx) {
   readAll_('TrainingPlans')
     .filter((x) => x.playerIds.split(',').indexOf(id) >= 0)
     .forEach((x) => updateRow_('TrainingPlans', x._row, Object.assign({}, x, { playerIds: without(x.playerIds) })));
+  // 每週訓練課表：從組別和指定球員中移除
+  const drop = (list) => list.map((x) => Object.assign({}, x, { playerIds: (x.playerIds || []).filter((v) => v !== id) }));
+  readAll_('TrainingWeeks')
+    .filter((w) => (w.groups + w.cells).indexOf('"' + id + '"') >= 0)
+    .forEach((w) => updateRow_('TrainingWeeks', w._row, Object.assign({}, w, { groups: JSON.stringify(drop(parseJson_(w.groups, []))), cells: JSON.stringify(drop(parseJson_(w.cells, []))) })));
   del('Players', (x) => x.id === id);
   audit_(a, '刪除球員', id, p.name + '（' + Object.keys(removed).map((k) => k + ' ' + removed[k]).join('、') + '）');
   return { deleted: id, removed: removed };
@@ -3442,6 +3451,124 @@ function savePlanWeek_(ctx) {
   return { saved: rows.length, removed: old.length };
 }
 
+/* ── 每週訓練課表：組別（投手組、內野手組…）× 星期一～日，每格寫訓練主題與項目 ── */
+
+function parseTrainingWeek_(r) {
+  return {
+    id: r.id, weekStart: r.weekStart, groups: parseJson_(r.groups, []), days: parseJson_(r.days, []), cells: parseJson_(r.cells, []),
+    updatedBy: r.updatedBy, updatedAt: r.updatedAt,
+  };
+}
+
+/** 球員、家長、老師只看得到有自己（孩子、學生）的組別；沒有指定球員的組別代表全隊 */
+function visibleTrainingWeek_(actor, w) {
+  if (!w || seesAllStudents_(actor)) return w;
+  const mine = actor.role === 'player' ? [actor.playerId] : linkedIds_(actor);
+  const groups = w.groups.filter((g) => g.playerIds.length === 0 || g.playerIds.some((id) => mine.indexOf(id) >= 0));
+  const ids = groups.map((g) => g.id);
+  return Object.assign({}, w, { groups: groups, cells: w.cells.filter((c) => ids.indexOf(c.groupId) >= 0) });
+}
+
+function requireMonday_(v) {
+  const d = dateStr_(v, '這一週的星期一');
+  const p = d.split('-').map(Number);
+  if (new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay() !== 1) throw apiError_('INVALID', '請用這一週的星期一當作開始日期。');
+  return d;
+}
+
+/** 讀取一週的課表；教練另外拿到上一週（可以複製） */
+function getTrainingWeek_(ctx) {
+  const a = ctx.actor;
+  const weekStart = requireMonday_(ctx.payload.weekStart);
+  const rows = readAll_('TrainingWeeks');
+  const find = (ws) => {
+    const r = rows.find((x) => x.weekStart === ws);
+    return r ? parseTrainingWeek_(r) : null;
+  };
+  const week = visibleTrainingWeek_(a, find(weekStart));
+  const last = a.role === 'coach' ? find(addDaysStr_(weekStart, -7)) : null;
+  const used = {};
+  [week, last].forEach((w) => w && w.groups.concat(w.cells).forEach((x) => x.playerIds.forEach((id) => (used[id] = true))));
+  const names = {};
+  readAll_('Players').forEach((p) => {
+    if (used[p.id]) names[p.id] = p.name;
+  });
+  return { week: week, last: last, names: names, today: today_() };
+}
+
+/** 儲存一整週的課表（整週換成送來的內容）；同一位球員一週只能在一個組別 */
+function saveTrainingWeek_(ctx) {
+  const a = ctx.actor;
+  const p = ctx.payload;
+  const weekStart = requireMonday_(p.weekStart);
+  const dates = [0, 1, 2, 3, 4, 5, 6].map((i) => addDaysStr_(weekStart, i));
+  const playerIds = readAll_('Players').map((x) => x.id);
+  const ids = (list, label) => {
+    const out = (Array.isArray(list) ? list.map(String) : []).filter((v, i, arr) => v && arr.indexOf(v) === i);
+    if (out.some((id) => playerIds.indexOf(id) < 0)) throw apiError_('INVALID', label + '有找不到的球員，請重新整理後再試。');
+    return out;
+  };
+
+  const rawGroups = Array.isArray(p.groups) ? p.groups : [];
+  if (rawGroups.length < 1 || rawGroups.length > 10) throw apiError_('INVALID', '組別要有 1～10 個。');
+  const inGroup = {};
+  const groups = rawGroups.map((g) => {
+    if (!g || typeof g !== 'object') throw apiError_('INVALID', '組別的格式不正確。');
+    const id = str_(g.id, '組別代碼', { required: true, max: 20 });
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) throw apiError_('INVALID', '組別代碼不正確。');
+    const name = str_(g.name, '組別名稱', { required: true, max: 12 });
+    const members = ids(g.playerIds, '「' + name + '」');
+    members.forEach((pid) => {
+      if (inGroup[pid]) throw apiError_('INVALID', '有球員同時在「' + inGroup[pid] + '」和「' + name + '」，同一位球員一週只能在一個組別。');
+      inGroup[pid] = name;
+    });
+    return { id: id, name: name, playerIds: members };
+  });
+  const groupIds = groups.map((g) => g.id);
+  if (groupIds.some((id, i) => groupIds.indexOf(id) !== i)) throw apiError_('INVALID', '組別代碼重複。');
+
+  const rawDays = Array.isArray(p.days) ? p.days : [];
+  if (rawDays.length !== 7) throw apiError_('INVALID', '每週要有星期一到星期日 7 天的設定。');
+  const days = rawDays.map((d, i) => {
+    if (!d || typeof d !== 'object' || d.date !== dates[i]) throw apiError_('INVALID', '日期不正確，請重新整理後再試。');
+    const off = d.off === true;
+    const startTime = off ? '' : timeStr_(d.startTime, '開始時間');
+    const endTime = off ? '' : timeStr_(d.endTime, '結束時間');
+    if (!off && (!startTime || !endTime)) throw apiError_('INVALID', d.date + ' 請選開始和結束時間，或設成休兵日。');
+    if (!off && endTime <= startTime) throw apiError_('INVALID', d.date + ' 的結束時間要晚於開始時間。');
+    return { date: d.date, off: off, startTime: startTime, endTime: endTime, note: str_(d.note, '當天備註', { max: 300 }) };
+  });
+
+  const rawCells = Array.isArray(p.cells) ? p.cells : [];
+  if (rawCells.length > groups.length * 7) throw apiError_('INVALID', '課表格子太多。');
+  const seen = {};
+  const cells = [];
+  rawCells.forEach((c) => {
+    if (!c || typeof c !== 'object') throw apiError_('INVALID', '課表的格式不正確。');
+    const groupId = String(c.groupId || '');
+    const gi = groupIds.indexOf(groupId);
+    if (gi < 0) throw apiError_('INVALID', '課表裡有不存在的組別。');
+    const di = dates.indexOf(String(c.date || ''));
+    if (di < 0) throw apiError_('INVALID', '課表裡有不在這一週的日期。');
+    const key = groupId + '|' + c.date;
+    if (seen[key]) throw apiError_('INVALID', '同一組同一天只能有一格。');
+    seen[key] = true;
+    const cell = {
+      groupId: groupId, date: dates[di], title: str_(c.title, '訓練主題', { max: 20 }), lines: str_(c.lines, '訓練項目', { max: 1500 }),
+      playerIds: ids(c.playerIds, groups[gi].name + ' ' + dates[di] + ' 的指定球員'),
+    };
+    // 休兵日與空白格子不存
+    if (!days[di].off && (cell.title || cell.lines || cell.playerIds.length)) cells.push(cell);
+  });
+
+  const now = nowIso_();
+  const fields = { weekStart: weekStart, groups: JSON.stringify(groups), days: JSON.stringify(days), cells: JSON.stringify(cells), updatedBy: a.displayName, updatedAt: now };
+  const old = readAll_('TrainingWeeks').find((x) => x.weekStart === weekStart);
+  if (old) updateRow_('TrainingWeeks', old._row, Object.assign({}, old, fields));
+  else appendRow_('TrainingWeeks', Object.assign({ id: newId_('TW'), createdById: a.id, createdAt: now }, fields));
+  return { weekStart: weekStart, groups: groups.length, cells: cells.length };
+}
+
 // ───────────────────────── 試算表存取 ─────────────────────────
 
 /** 一次寫入多列（大量匯入時比逐列 appendRow 快很多） */
@@ -3457,7 +3584,7 @@ function appendRows_(name, objs) {
  * 球隊管理（練球、出缺席、通訊錄、預算、賽事）的資料放在「另一份」試算表，避免原本的資料庫越來越大。
  * 帳號與球員名單仍然在原本的試算表。
  */
-const TEAM_SHEETS = ['PracticeDays', 'Attendance', 'PlayerProfiles', 'BudgetItems', 'Transactions', 'Tournaments', 'Games', 'TrainingPlans'];
+const TEAM_SHEETS = ['PracticeDays', 'Attendance', 'PlayerProfiles', 'BudgetItems', 'Transactions', 'Tournaments', 'Games', 'TrainingPlans', 'TrainingWeeks'];
 const TEAM_DB_NAME = '東勢國中棒球隊｜球隊管理 資料庫';
 const TEAM_DB_PROP = 'teamSpreadsheetId';
 let TEAM_SS_ = null;

@@ -340,3 +340,194 @@ export function renderPhotoGrid(spec: { title: string; subtitle?: string; summar
   }
   return canvas;
 }
+
+/* ───────── 每週訓練課表圖片（組別 × 星期幾，像紙本課表） ───────── */
+
+export interface WeekGridSpec {
+  title: string;
+  subtitle?: string;
+  days: { date: string; weekday: string; time: string; off: boolean; note: string }[];
+  groups: { name: string; members: string }[];
+  /** 第 g 組、第 d 天的格子；沒有內容回傳 null */
+  cell: (g: number, d: number) => { title: string; lines: { text: string; sub: boolean }[]; players: string } | null;
+  footer?: string;
+}
+
+export function renderWeekGridImage(spec: WeekGridSpec): HTMLCanvasElement {
+  const G = 18; // 格子內文字大小
+  const GL = 26; // 行高
+  const IN = 8; // 格子內距
+  const groupW = 190;
+  const colW = spec.days.map((d) => (d.off ? 96 : 210));
+  const tableW = groupW + colW.reduce((s, w) => s + w, 0);
+  const W = tableW + PAD * 2;
+  const font = (size: number, bold = false) => `${bold ? 'bold ' : ''}${size}px ${FONT}`;
+  const m = document.createElement('canvas').getContext('2d')!;
+
+  // 先排版：每一格要畫的東西與高度
+  type Piece = { kind: 'title' | 'sub' | 'line' | 'players'; text: string };
+  const layout = spec.groups.map((_, g) =>
+    spec.days.map((day, d): Piece[] => {
+      const c = day.off ? null : spec.cell(g, d);
+      if (!c) return [];
+      const width = colW[d] - IN * 2;
+      const out: Piece[] = [];
+      if (c.title) {
+        m.font = font(19, true);
+        wrap(m, c.title, width).forEach((t) => out.push({ kind: 'title', text: t }));
+      }
+      c.lines.forEach((l) => {
+        m.font = font(G, l.sub);
+        wrap(m, l.text, width).forEach((t) => out.push({ kind: l.sub ? 'sub' : 'line', text: t }));
+      });
+      if (c.players) {
+        m.font = font(G, true);
+        wrap(m, '👤 ' + c.players, width).forEach((t) => out.push({ kind: 'players', text: t }));
+      }
+      return out;
+    }),
+  );
+  const groupLines = spec.groups.map((gr) => {
+    m.font = font(17);
+    return wrap(m, gr.members || '（全隊）', groupW - IN * 2);
+  });
+  const rowH = spec.groups.map((_, g) =>
+    Math.max(44 + groupLines[g].length * 24 + IN, ...layout[g].map((pieces) => pieces.reduce((s, p) => s + (p.kind === 'title' ? 32 : GL), 0) + IN * 2), 60),
+  );
+  const notes = spec.days.map((d, i) => {
+    m.font = font(16);
+    return d.note && !d.off ? wrap(m, d.note, colW[i] - IN * 2) : [];
+  });
+  const notesH = notes.some((n) => n.length) ? Math.max(...notes.map((n) => n.length)) * 23 + IN * 2 + 4 : 0;
+  const headH = 104 + (spec.subtitle ? 34 : 0);
+  const theadH = 34 * 3;
+  const footH = spec.footer ? 52 : 24;
+  const bodyH = rowH.reduce((s, h) => s + h, 0);
+  const H = headH + PAD + theadH + bodyH + notesH + footH;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W * SCALE;
+  canvas.height = H * SCALE;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(SCALE, SCALE);
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#23263a';
+  ctx.fillRect(0, 0, W, headH);
+  ctx.fillStyle = '#ffcc33';
+  ctx.fillRect(0, headH - 8, W, 8);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(32, true);
+  ctx.fillText(spec.title, PAD, 30);
+  if (spec.subtitle) {
+    ctx.font = font(22);
+    ctx.fillStyle = '#ffe9a6';
+    ctx.fillText(spec.subtitle, PAD, 78);
+  }
+
+  const top = headH + PAD;
+  const xs: number[] = [];
+  let x = PAD + groupW;
+  colW.forEach((w) => {
+    xs.push(x);
+    x += w;
+  });
+  const center = (text: string, cx: number, y: number) => ctx.fillText(text, cx - ctx.measureText(text).width / 2, y);
+  const line = (x1: number, y1: number, x2: number, y2: number, color = '#9aa0b4', width = 1) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  };
+
+  // 表頭：日期／星期／時間
+  ctx.fillStyle = '#f3f4f8';
+  ctx.fillRect(PAD, top, tableW, theadH);
+  spec.days.forEach((d, i) => {
+    const cx = xs[i] + colW[i] / 2;
+    ctx.fillStyle = '#23263a';
+    ctx.font = font(19, true);
+    center(d.date, cx, top + 7);
+    center(d.weekday, cx, top + 41);
+    ctx.font = font(16, true);
+    ctx.fillStyle = d.off ? '#9aa0b4' : '#b71c1c';
+    center(d.off ? '休兵日' : d.time, cx, top + 76);
+  });
+  line(PAD, top + 34, PAD + tableW, top + 34, '#d5d9e4');
+  line(PAD, top + 68, PAD + tableW, top + 68, '#d5d9e4');
+
+  // 每一組
+  let y = top + theadH;
+  spec.groups.forEach((gr, g) => {
+    const h = rowH[g];
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(PAD, y, tableW, h);
+    ctx.fillStyle = '#23263a';
+    ctx.font = font(26, true);
+    ctx.fillText(gr.name, PAD + IN + 4, y + 10);
+    ctx.font = font(17);
+    ctx.fillStyle = '#4a4f63';
+    groupLines[g].forEach((t, k) => ctx.fillText(t, PAD + IN + 4, y + 46 + k * 24));
+    spec.days.forEach((d, i) => {
+      if (d.off) return;
+      let cy = y + IN;
+      layout[g][i].forEach((p) => {
+        const cx = xs[i];
+        if (p.kind === 'title') {
+          ctx.fillStyle = '#ffc000';
+          ctx.fillRect(cx + 1, cy - 2, colW[i] - 2, 30);
+          ctx.fillStyle = '#23263a';
+          ctx.font = font(19, true);
+          center(p.text, cx + colW[i] / 2, cy + 3);
+          cy += 32;
+          return;
+        }
+        if (p.kind === 'sub') {
+          ctx.fillStyle = '#d9d9d9';
+          ctx.fillRect(cx + 1, cy - 1, colW[i] - 2, GL);
+        }
+        ctx.fillStyle = p.kind === 'players' ? '#1f5fb5' : '#23263a';
+        ctx.font = font(G, p.kind !== 'line');
+        center(p.text, cx + colW[i] / 2, cy + 3);
+        cy += GL;
+      });
+    });
+    line(PAD, y + h, PAD + tableW, y + h, '#23263a', 2);
+    y += h;
+  });
+  // 休兵日：整欄合併
+  spec.days.forEach((d, i) => {
+    if (!d.off) return;
+    ctx.fillStyle = '#f0f1f5';
+    ctx.fillRect(xs[i] + 1, top + theadH + 1, colW[i] - 2, bodyH - 2);
+    ctx.fillStyle = '#4a4f63';
+    ctx.font = font(24, true);
+    '休兵日'.split('').forEach((ch, k) => center(ch, xs[i] + colW[i] / 2, top + theadH + bodyH / 2 - 45 + k * 32));
+  });
+  // 當天備註（例如週六分段時間）
+  if (notesH) {
+    ctx.fillStyle = '#fff8e1';
+    ctx.fillRect(PAD, y, tableW, notesH);
+    ctx.fillStyle = '#23263a';
+    ctx.font = font(20, true);
+    ctx.fillText('📌 備註', PAD + IN + 4, y + IN + 2);
+    ctx.font = font(16);
+    notes.forEach((n, i) => n.forEach((t, k) => ctx.fillText(t, xs[i] + IN, y + IN + k * 23)));
+    y += notesH;
+  }
+  // 格線
+  line(PAD + groupW, top, PAD + groupW, y, '#23263a', 2);
+  xs.slice(1).forEach((vx) => line(vx, top, vx, y, '#9aa0b4'));
+  ctx.strokeStyle = '#23263a';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(PAD, top, tableW, y - top);
+  if (spec.footer) {
+    ctx.font = font(17);
+    ctx.fillStyle = '#5a5f78';
+    ctx.fillText(spec.footer, PAD, y + 18);
+  }
+  return canvas;
+}

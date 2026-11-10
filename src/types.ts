@@ -620,3 +620,38 @@ export interface PlanSession {
   updatedBy: string;
   updatedAt: string;
 }
+
+/** 每週訓練課表（組別 × 星期幾） */
+export interface TrainingGroup {
+  id: string;
+  name: string;
+  /** 這一組的球員；空白代表全隊 */
+  playerIds: string[];
+}
+export interface TrainingDay {
+  date: string;
+  /** 休兵日 */
+  off: boolean;
+  startTime: string;
+  endTime: string;
+  /** 當天備註，例如週六的分段時間 */
+  note: string;
+}
+export interface TrainingCell {
+  groupId: string;
+  date: string;
+  /** 訓練主題，例如「重訓日」 */
+  title: string;
+  /** 訓練項目，一行一項；行首加 # 是灰色小標題 */
+  lines: string;
+  /** 這一格另外指定的球員 */
+  playerIds: string[];
+}
+export interface TrainingWeek {
+  weekStart: string;
+  groups: TrainingGroup[];
+  days: TrainingDay[];
+  cells: TrainingCell[];
+  updatedBy?: string;
+  updatedAt?: string;
+}

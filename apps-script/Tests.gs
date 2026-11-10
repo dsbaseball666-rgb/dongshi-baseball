@@ -722,6 +722,39 @@ function runSelfTests() {
       const pl2 = plan([sB]);
       const after = readAll_('TrainingPlans').filter((x) => x.date >= wk && x.date <= '2099-01-11');
       results.push([pl2.ok && pl2.data.removed === 2 && after.length === 1, '重新儲存同一週會整週換掉，不會重複', pl2.ok ? JSON.stringify(pl2.data) : pl2.error]);
+
+      // 每週訓練課表（組別 × 星期幾）
+      const twDays = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+        const date = addDaysStr_(wk, i);
+        if (i === 6) return { date: date, off: true };
+        if (i === 3) return { date: date, startTime: '15:00', endTime: '17:00' };
+        if (i === 5) return { date: date, startTime: '13:30', endTime: '18:00', note: '熱身 13:30-14:10' };
+        return { date: date, startTime: '17:00', endTime: '18:00' };
+      });
+      const twGroups = [{ id: 'g1', name: '投手組', playerIds: ['TEST-PA'] }, { id: 'g2', name: '打擊組', playerIds: ['TEST-PB'] }];
+      const twCells = [
+        { groupId: 'g1', date: wk, title: '重訓日', lines: '#訓練階段\n肩關節重訓', playerIds: [] },
+        { groupId: 'g2', date: wk, title: '打擊訓練', lines: 'T架', playerIds: ['TEST-PA'] },
+        { groupId: 'g2', date: '2099-01-11', title: '不該存', lines: '休兵日' },
+      ];
+      const tw = (patch, t) => call('saveTrainingWeek', Object.assign({ weekStart: wk, groups: twGroups, days: twDays, cells: twCells }, patch), t || tCoach, Utilities.getUuid());
+      const tw1 = tw({});
+      results.push([tw1.ok && tw1.data.groups === 2 && tw1.data.cells === 2, '教練可以儲存每週訓練課表（休兵日的格子不會存）', tw1.ok ? JSON.stringify(tw1.data) : tw1.error]);
+      const twA = call('getTrainingWeek', { weekStart: wk }, tPA);
+      results.push([twA.ok && twA.data.week.groups.length === 1 && twA.data.week.groups[0].name === '投手組' && twA.data.week.cells.length === 1 && twA.data.last === null, '球員只看得到自己的組別', twA.ok ? JSON.stringify(twA.data.week.groups.map((g) => g.name)) : twA.error]);
+      const twC = call('getTrainingWeek', { weekStart: wk }, tCoach);
+      results.push([twC.ok && twC.data.week.cells.length === 2 && twC.data.week.days[5].note === '熱身 13:30-14:10' && twC.data.names['TEST-PB'], '教練看得到全部組別、每天時間與球員姓名', twC.ok ? '' : twC.error]);
+      expectFail('球員不能編輯訓練課表', tw({}, tPA), 'FORBIDDEN');
+      expectFail('同一位球員不能同時在兩個組別', tw({ groups: [twGroups[0], Object.assign({}, twGroups[1], { playerIds: ['TEST-PA'] })] }), 'INVALID');
+      expectFail('開始日期一定要是星期一', tw({ weekStart: '2099-01-06' }), 'INVALID');
+      expectFail('結束時間要晚於開始時間（訓練課表）', tw({ days: twDays.map((d, i) => (i === 0 ? Object.assign({}, d, { endTime: '16:00' }) : d)) }), 'INVALID');
+      expectFail('課表裡不存在的組別會被拒絕', tw({ cells: [{ groupId: 'nope', date: wk, title: 'x' }] }), 'INVALID');
+      expectFail('課表裡不存在的球員會被拒絕', tw({ cells: [{ groupId: 'g1', date: wk, title: 'x', playerIds: ['NOPE-1'] }] }), 'INVALID');
+      const tw2 = tw({ cells: [twCells[0]] });
+      const twRows = readAll_('TrainingWeeks').filter((x) => x.weekStart === wk);
+      results.push([tw2.ok && twRows.length === 1 && JSON.parse(twRows[0].cells).length === 1, '重新儲存同一週會整週換掉，不會重複（訓練課表）', tw2.ok ? '' : tw2.error]);
+      const twNext = call('getTrainingWeek', { weekStart: '2099-01-12' }, tCoach);
+      results.push([twNext.ok && twNext.data.week === null && twNext.data.last && twNext.data.last.weekStart === wk, '教練排下一週時拿得到上一週的課表（可以複製）', twNext.ok ? '' : twNext.error]);
     }
 
     // 6. 停用帳號立即失效
@@ -790,12 +823,13 @@ function cleanupTestData_(created) {
     testUsers.indexOf(r.actorId) >= 0 ||
     testUsers.indexOf(r.createdById) >= 0 ||
     testUsers.indexOf(r.authorId) >= 0 ||
+    String(r.weekStart || '').indexOf('2099-') === 0 ||
     isTestTitle(r);
   [
     'DailyNotes', 'FitnessTests', 'Goals', 'Rules', 'KnowledgeArticles', 'Announcements',
     'TaskCompletions', 'Tasks', 'PlayerMonsters', 'MonsterProgress', 'Monsters', 'Wallets', 'RewardLogs', 'QuizPasses',
     'ExamScores', 'Battles', 'Invites', 'Messages', 'SchoolRecords', 'Events',
-    'PracticeDays', 'Attendance', 'PlayerProfiles', 'Transactions', 'BudgetItems', 'Games', 'Tournaments', 'TrainingPlans', 'AuditLogs', 'Users', 'Players',
+    'PracticeDays', 'Attendance', 'PlayerProfiles', 'Transactions', 'BudgetItems', 'Games', 'Tournaments', 'TrainingPlans', 'TrainingWeeks', 'AuditLogs', 'Users', 'Players',
   ].forEach((name) => {
     const rows = readAll_(name).filter(isTest).map((r) => r._row).sort((a, b) => b - a);
     rows.forEach((row) => deleteRow_(name, row));
