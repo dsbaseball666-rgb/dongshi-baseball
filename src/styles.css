@@ -783,3 +783,5 @@ td.strong { font-weight: 700; }
 .tw-day-row.is-off { background: #f0f1f5; }
 .tw-day-row textarea { min-width: 0; }
 @media (max-width: 720px) { .tw-day-row { grid-template-columns: 1fr 1fr; } .tw-day-row textarea, .tw-day-row .time-pair { grid-column: 1 / -1; } }
+.tw-group-input { width: 100%; font: inherit; font-size: 1.05rem; font-weight: 800; padding: 4px 6px; border: 2px solid #1f5fb5; border-radius: 6px; background: #fff; }
+.tw-rename { margin-left: 4px; padding: 0 6px; min-height: 26px; font-size: 0.75rem; vertical-align: middle; }

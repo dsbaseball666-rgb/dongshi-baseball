@@ -96,13 +96,17 @@ function PlayerPicker({ players, selected, taken, onChange }: { players: Player[
 }
 
 /* ───────── 課表（組別 × 星期幾） ───────── */
-function WeekGrid({ week, names, myIds, pick, selected }: {
+function WeekGrid({ week, names, myIds, pick, selected, editName, renameGroup }: {
   week: TrainingWeek;
   names: Record<string, string>;
   myIds: string[];
   /** 編輯時點格子 */
   pick?: (groupId: string, date: string) => void;
   selected?: { groupId: string; date: string } | null;
+  /** 編輯中：組別名稱直接在表格左邊打字修改 */
+  editName?: (groupId: string, name: string) => void;
+  /** 平常看課表時（教練）：點「改名」馬上改好並儲存 */
+  renameGroup?: (groupId: string) => void;
 }) {
   const today = todayStr();
   const nameList = (ids: string[]) => ids.map((id) => names[id] ?? '（已刪除）').join('、');
@@ -141,7 +145,18 @@ function WeekGrid({ week, names, myIds, pick, selected }: {
           {week.groups.map((g, gi) => (
             <tr key={g.id} className={g.playerIds.some((id) => myIds.includes(id)) ? 'tw-mine' : ''}>
               <th className="tw-group" scope="row">
-                <strong>{g.name}</strong>
+                {editName ? (
+                  <input className="tw-group-input" value={g.name} maxLength={12} onChange={(e) => editName(g.id, e.target.value)} aria-label="組別名稱" placeholder="組別名稱" />
+                ) : (
+                  <strong>
+                    {g.name}
+                    {renameGroup && (
+                      <button type="button" className="btn btn-sm btn-ghost tw-rename" onClick={() => renameGroup(g.id)} aria-label={`把「${g.name}」改名`}>
+                        ✏️ 改名
+                      </button>
+                    )}
+                  </strong>
+                )}
                 <span className="small">{g.playerIds.length ? nameList(g.playerIds) : '（全隊）'}</span>
               </th>
               {week.days.map((d) => {
@@ -409,6 +424,17 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
     setDraft(shiftTrainingWeek(data.last, monday));
     setCell(null);
   };
+  // 平常看課表時直接改組別名稱（改完馬上儲存這一週）
+  const renameTask = useTask();
+  const renameGroup = async (groupId: string) => {
+    if (!week) return;
+    const g = week.groups.find((x) => x.id === groupId);
+    if (!g) return;
+    const name = window.prompt(`「${g.name}」要改成什麼名稱？（最多 12 個字）`, g.name);
+    if (name === null || !name.trim() || name.trim() === g.name) return;
+    if (name.trim().length > 12) return window.alert('組別名稱最多 12 個字。');
+    await renameTask.run(() => data.save({ ...week, groups: week.groups.map((x) => (x.id === groupId ? { ...x, name: name.trim() } : x)) }), `已改名為「${name.trim()}」。`);
+  };
   const save = async () => {
     if (!draft) return;
     const bad = draft.groups.find((g) => !g.name.trim());
@@ -467,7 +493,17 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
         </Card>
       ) : (
         <Card title={editing ? '③ 點格子填寫內容' : '每週訓練課表'} icon="🗓️">
-          <WeekGrid week={shown} names={names} myIds={coach ? [] : myIds} pick={editing ? openCell : undefined} selected={cell} />
+          <WeekGrid
+            week={shown}
+            names={names}
+            myIds={coach ? [] : myIds}
+            pick={editing ? openCell : undefined}
+            selected={cell}
+            editName={editing ? (id, name) => setDraft({ ...draft, groups: draft.groups.map((g) => (g.id === id ? { ...g, name } : g)) }) : undefined}
+            renameGroup={coach && !editing && week ? renameGroup : undefined}
+          />
+          {coach && !editing && week && <p className="muted small">左邊的組別名稱可以隨時按「✏️ 改名」修改，改完馬上儲存。</p>}
+          <ActionFeedback action={renameTask} />
           {!editing && week?.updatedBy && <p className="muted small">最後更新：{week.updatedBy}</p>}
         </Card>
       )}
