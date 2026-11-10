@@ -234,13 +234,24 @@ export function blankTrainingWeek(weekStart: string): TrainingWeek {
   };
 }
 
-/** 把上一週的課表搬到這一週（日期往後 7 天） */
+/** 這一天的時間是不是和固定時間不一樣（i：0＝星期一） */
+export function dayChanged(d: { off: boolean; startTime: string; endTime: string }, i: number): boolean {
+  const def = WEEK_DAY_DEFAULTS[i];
+  return d.off !== def.off || (!d.off && (d.startTime !== def.startTime || d.endTime !== def.endTime));
+}
+
+/** 這一天恢復成固定時間（備註也恢復） */
+export function defaultDay(date: string, i: number) {
+  return { date, ...WEEK_DAY_DEFAULTS[i] };
+}
+
+/** 把上一週的課表搬到這一週（日期往後 7 天）；每天的時間一律回到固定時間，上週臨時改的不帶過來 */
 export function shiftTrainingWeek(w: TrainingWeek, weekStart: string): TrainingWeek {
   const move = (date: string) => addDays(date, 7);
   return {
     weekStart,
     groups: w.groups.map((g) => ({ ...g, playerIds: [...g.playerIds] })),
-    days: w.days.map((d) => ({ ...d, date: move(d.date) })),
+    days: WEEK_DAY_DEFAULTS.map((_, i) => defaultDay(addDays(weekStart, i), i)),
     cells: w.cells.map((c) => ({ ...c, date: move(c.date), playerIds: [...c.playerIds] })),
   };
 }

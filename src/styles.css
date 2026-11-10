@@ -785,3 +785,12 @@ td.strong { font-weight: 700; }
 @media (max-width: 720px) { .tw-day-row { grid-template-columns: 1fr 1fr; } .tw-day-row textarea, .tw-day-row .time-pair { grid-column: 1 / -1; } }
 .tw-group-input { width: 100%; font: inherit; font-size: 1.05rem; font-weight: 800; padding: 4px 6px; border: 2px solid #1f5fb5; border-radius: 6px; background: #fff; }
 .tw-rename { margin-left: 4px; padding: 0 6px; min-height: 26px; font-size: 0.75rem; vertical-align: middle; }
+.tw-grid thead .tw-time.tw-changed { color: #e65100; background: #fff3e0; }
+.tw-changed-tag { display: inline-block; margin-left: 4px; padding: 0 6px; font-size: 0.72rem; font-weight: 800; color: #fff; background: #ef6c00; border-radius: 4px; }
+.tw-day-def { display: block; font-weight: 400; }
+.tw-day-reset { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.tw-day-row.is-changed { border-color: #ffb74d; background: #fff8ee; }
+.tw-day-row { grid-template-columns: 150px 90px auto auto 1fr; }
+.tw-day-quick .tw-day-row { grid-template-columns: 1fr 1fr; }
+.tw-day-quick .tw-day-row textarea, .tw-day-quick .tw-day-row .time-pair { grid-column: 1 / -1; }
+@media (max-width: 720px) { .tw-day-row { grid-template-columns: 1fr 1fr; } .tw-day-row textarea, .tw-day-row .time-pair, .tw-day-row .tw-day-reset { grid-column: 1 / -1; } }

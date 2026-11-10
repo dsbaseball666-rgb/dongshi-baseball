@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Player, TrainingCell, TrainingGroup, TrainingWeek } from '../../types';
 import { useTask } from '../../store/DemoStore';
 import { usePlayers } from '../../sources/hooks';
-import { blankTrainingWeek, byNumber, CELL_TITLES, mondayOf, shiftTrainingWeek, TIME_OPTIONS, useTrainingWeek, WEEK_DAY_DEFAULTS } from '../../sources/team';
+import { blankTrainingWeek, byNumber, CELL_TITLES, dayChanged, defaultDay, mondayOf, shiftTrainingWeek, TIME_OPTIONS, useTrainingWeek, WEEK_DAY_DEFAULTS } from '../../sources/team';
 import { todayStr } from '../../lib/date';
 import { ActionFeedback, Alert, Badge, Card, EmptyState, LoadingCard } from '../../components/UI';
 import { LineImageButton } from '../../components/LineImage';
@@ -96,7 +96,7 @@ function PlayerPicker({ players, selected, taken, onChange }: { players: Player[
 }
 
 /* ───────── 課表（組別 × 星期幾） ───────── */
-function WeekGrid({ week, names, myIds, pick, selected, editName, renameGroup }: {
+function WeekGrid({ week, names, myIds, pick, selected, editName, renameGroup, editDay }: {
   week: TrainingWeek;
   names: Record<string, string>;
   myIds: string[];
@@ -107,6 +107,8 @@ function WeekGrid({ week, names, myIds, pick, selected, editName, renameGroup }:
   editName?: (groupId: string, name: string) => void;
   /** 平常看課表時（教練）：點「改名」馬上改好並儲存 */
   renameGroup?: (groupId: string) => void;
+  /** 平常看課表時（教練）：點「改時間」修改那一天 */
+  editDay?: (index: number) => void;
 }) {
   const today = todayStr();
   const nameList = (ids: string[]) => ids.map((id) => names[id] ?? '（已刪除）').join('、');
@@ -134,9 +136,15 @@ function WeekGrid({ week, names, myIds, pick, selected, editName, renameGroup }:
             ))}
           </tr>
           <tr>
-            {week.days.map((d) => (
-              <th key={d.date} className={`tw-time ${d.off ? 'tw-off' : ''}`}>
+            {week.days.map((d, i) => (
+              <th key={d.date} className={`tw-time ${d.off ? 'tw-off' : ''} ${dayChanged(d, i) ? 'tw-changed' : ''}`}>
                 {d.off ? '休兵日' : `${d.startTime}–${d.endTime}`}
+                {dayChanged(d, i) && <span className="tw-changed-tag">已調整</span>}
+                {editDay && (
+                  <button type="button" className="btn btn-sm btn-ghost tw-rename" onClick={() => editDay(i)} aria-label={`修改禮拜${WEEKDAY_NAMES[i]}的時間`}>
+                    ✏️ 改時間
+                  </button>
+                )}
               </th>
             ))}
           </tr>
@@ -261,35 +269,84 @@ function GroupsEditor({ groups, players, onChange }: { groups: TrainingGroup[]; 
 }
 
 /* ───────── 編輯：每天時間 ───────── */
+type Day = TrainingWeek['days'][number];
+
+/** 一天的時間設定：休兵日、開始／結束時間、備註；和固定時間不一樣時可以一鍵恢復 */
+function DayFields({ day, i, onChange }: { day: Day; i: number; onChange: (d: Day) => void }) {
+  const set = (p: Partial<Day>) => onChange({ ...day, ...p });
+  const def = WEEK_DAY_DEFAULTS[i];
+  const changed = dayChanged(day, i);
+  return (
+    <div className={`tw-day-row ${day.off ? 'is-off' : ''} ${changed ? 'is-changed' : ''}`}>
+      <strong>
+        禮拜{WEEKDAY_NAMES[i]} {md(day.date)}
+        <span className="muted small tw-day-def">固定：{def.off ? '休兵日' : `${def.startTime}–${def.endTime}`}</span>
+      </strong>
+      <label className="check">
+        <input type="checkbox" checked={day.off} onChange={(e) => set(e.target.checked ? { off: true } : { off: false, startTime: day.startTime || def.startTime || '17:00', endTime: day.endTime || def.endTime || '18:00' })} />
+        休兵日
+      </label>
+      {!day.off && (
+        <span className="time-pair">
+          <TimeSelect label={`禮拜${WEEKDAY_NAMES[i]} 開始`} value={day.startTime} onChange={(v) => set({ startTime: v })} />
+          <span>到</span>
+          <TimeSelect label={`禮拜${WEEKDAY_NAMES[i]} 結束`} value={day.endTime} onChange={(v) => set({ endTime: v })} />
+        </span>
+      )}
+      {changed ? (
+        <span className="tw-day-reset">
+          <span className="tw-changed-tag">已調整</span>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange({ ...defaultDay(day.date, i), note: def.note || day.note })}>
+            恢復固定時間
+          </button>
+        </span>
+      ) : (
+        <span />
+      )}
+      {!day.off && <textarea rows={day.note ? Math.min(7, day.note.split('\n').length) : 1} value={day.note} maxLength={300} onChange={(e) => set({ note: e.target.value })} placeholder="當天備註（可空白），例如分段時間" aria-label={`禮拜${WEEKDAY_NAMES[i]} 備註`} />}
+    </div>
+  );
+}
+
 function DaysEditor({ week, onChange }: { week: TrainingWeek; onChange: (w: TrainingWeek) => void }) {
-  const set = (i: number, p: Partial<TrainingWeek['days'][number]>) => onChange({ ...week, days: week.days.map((d, k) => (k === i ? { ...d, ...p } : d)) });
   return (
     <Card title="② 每天時間" icon="⏰">
-      <p className="muted small">已經帶入固定時間：一、二、三、五 17:00–18:00，四 15:00–17:00，六 13:30–18:00，日休兵。放假或改時間時在這裡調整。</p>
+      <p className="muted small">固定時間已經自動帶入：一、二、三、五 17:00–18:00，四 15:00–17:00，六 13:30–18:00，日休兵。放假或比賽時可以只改這一週，下一週會自動回到固定時間。</p>
       <div className="tw-days">
         {week.days.map((d, i) => (
-          <div key={d.date} className={`tw-day-row ${d.off ? 'is-off' : ''}`}>
-            <strong>
-              禮拜{WEEKDAY_NAMES[i]} {md(d.date)}
-            </strong>
-            <label className="check">
-              <input type="checkbox" checked={d.off} onChange={(e) => set(i, e.target.checked ? { off: true } : { off: false, startTime: d.startTime || WEEK_DAY_DEFAULTS[i].startTime || '17:00', endTime: d.endTime || WEEK_DAY_DEFAULTS[i].endTime || '18:00' })} />
-              休兵日
-            </label>
-            {!d.off && (
-              <span className="time-pair">
-                <TimeSelect label={`禮拜${WEEKDAY_NAMES[i]} 開始`} value={d.startTime} onChange={(v) => set(i, { startTime: v })} />
-                <span>到</span>
-                <TimeSelect label={`禮拜${WEEKDAY_NAMES[i]} 結束`} value={d.endTime} onChange={(v) => set(i, { endTime: v })} />
-              </span>
-            )}
-            {!d.off && <textarea rows={d.note ? Math.min(7, d.note.split('\n').length) : 1} value={d.note} maxLength={300} onChange={(e) => set(i, { note: e.target.value })} placeholder="當天備註（可空白），例如分段時間" aria-label={`禮拜${WEEKDAY_NAMES[i]} 備註`} />}
-          </div>
+          <DayFields key={d.date} day={d} i={i} onChange={(nd) => onChange({ ...week, days: week.days.map((x, k) => (k === i ? nd : x)) })} />
         ))}
       </div>
-      <button type="button" className="btn btn-sm btn-ghost" onClick={() => window.confirm('把每天的時間和備註恢復成預設值？') && onChange({ ...week, days: WEEK_DAY_DEFAULTS.map((d, i) => ({ ...d, date: week.days[i].date })) })}>
-        恢復預設時間
+      <button type="button" className="btn btn-sm btn-ghost" onClick={() => window.confirm('這一週每天都恢復成固定時間和預設備註？') && onChange({ ...week, days: week.days.map((d, i) => defaultDay(d.date, i)) })}>
+        整週恢復固定時間
       </button>
+    </Card>
+  );
+}
+
+/** 平常看課表時，只改某一天的時間（改完馬上儲存） */
+function QuickDayEditor({ week, i, task, onSave, onClose }: { week: TrainingWeek; i: number; task: ReturnType<typeof useTask>; onSave: (w: TrainingWeek) => Promise<boolean>; onClose: () => void }) {
+  const [day, setDay] = useState<Day>(week.days[i]);
+  const submit = async () => {
+    if (!day.off && (!day.startTime || !day.endTime)) return window.alert('請選開始和結束時間。');
+    if (!day.off && day.endTime <= day.startTime) return window.alert('結束時間要晚於開始時間。');
+    const lost = day.off && !week.days[i].off ? week.cells.filter((c) => c.date === day.date).length : 0;
+    if (lost && !window.confirm(`改成休兵日後，這天已經排好的 ${lost} 格課表內容會被刪除，確定嗎？`)) return;
+    if (await onSave({ ...week, days: week.days.map((x, k) => (k === i ? day : x)) })) onClose();
+  };
+  return (
+    <Card title={`修改禮拜${WEEKDAY_NAMES[i]} ${md(day.date)} 的時間`} icon="⏰" className="tw-day-quick">
+      <p className="muted small">只會改這一週；下一週還是固定時間。</p>
+      <DayFields day={day} i={i} onChange={setDay} />
+      <ActionFeedback action={task} />
+      <div className="form-actions">
+        <button type="button" className="btn btn-primary" disabled={task.pending} onClick={submit}>
+          💾 儲存時間
+        </button>
+        <button type="button" className="btn btn-ghost" disabled={task.pending} onClick={onClose}>
+          取消
+        </button>
+      </div>
     </Card>
   );
 }
@@ -406,6 +463,7 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
     if (editing && !window.confirm('這一週的課表還沒儲存，確定要離開嗎？')) return;
     setDraft(null);
     setCell(null);
+    setDayIdx(null);
     setMonday(m);
   };
   const openCell = (groupId: string, date: string) => {
@@ -420,7 +478,7 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
   };
   const copyLast = () => {
     if (!data.last) return;
-    if (draft && draft.cells.length && !window.confirm('要用上一週的課表（分組、時間、內容）取代目前這週嗎？')) return;
+    if (draft && draft.cells.length && !window.confirm('要用上一週的分組和課表內容取代目前這週嗎？（每天時間會用固定時間）')) return;
     setDraft(shiftTrainingWeek(data.last, monday));
     setCell(null);
   };
@@ -435,6 +493,14 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
     if (name.trim().length > 12) return window.alert('組別名稱最多 12 個字。');
     await renameTask.run(() => data.save({ ...week, groups: week.groups.map((x) => (x.id === groupId ? { ...x, name: name.trim() } : x)) }), `已改名為「${name.trim()}」。`);
   };
+  // 平常看課表時只改某一天的時間（改完馬上儲存這一週）
+  const timeTask = useTask();
+  const [dayIdx, setDayIdx] = useState<number | null>(null);
+  const openDayTime = (i: number) => {
+    setDayIdx(i);
+    setTimeout(() => document.querySelector('.tw-day-quick')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+  };
+  const saveDayTime = async (w: TrainingWeek) => (await timeTask.run(() => data.save(w), '時間已更新。')).ok;
   const save = async () => {
     if (!draft) return;
     const bad = draft.groups.find((g) => !g.name.trim());
@@ -468,7 +534,7 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
             <div className="form-actions">
               {data.last && (
                 <button type="button" className="btn" onClick={copyLast}>
-                  📄 複製上週（分組、時間、內容）
+                  📄 複製上週（分組、內容）
                 </button>
               )}
               <button type="button" className="btn btn-ghost" onClick={() => window.confirm('清空這一週的課表內容（分組和時間保留）？') && setDraft({ ...draft, cells: [] })}>
@@ -483,6 +549,10 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
 
       {editing && <GroupsEditor groups={draft.groups} players={active} onChange={setGroups} />}
       {editing && <DaysEditor week={draft} onChange={setDraft} />}
+
+      {coach && !editing && week && dayIdx !== null && (
+        <QuickDayEditor key={`${monday}-${dayIdx}`} week={week} i={dayIdx} task={timeTask} onSave={saveDayTime} onClose={() => setDayIdx(null)} />
+      )}
 
       {data.error && <Alert kind="error">{data.error}</Alert>}
       {data.loading ? (
@@ -501,9 +571,11 @@ export function PlanTab({ coach, myIds = [] }: { coach: boolean; myIds?: string[
             selected={cell}
             editName={editing ? (id, name) => setDraft({ ...draft, groups: draft.groups.map((g) => (g.id === id ? { ...g, name } : g)) }) : undefined}
             renameGroup={coach && !editing && week ? renameGroup : undefined}
+            editDay={coach && !editing && week ? openDayTime : undefined}
           />
-          {coach && !editing && week && <p className="muted small">左邊的組別名稱可以隨時按「✏️ 改名」修改，改完馬上儲存。</p>}
+          {coach && !editing && week && <p className="muted small">組別名稱按「✏️ 改名」、每天時間按「✏️ 改時間」就能修改，改完馬上儲存。時間只改這一週，下一週會回到固定時間。</p>}
           <ActionFeedback action={renameTask} />
+          {dayIdx === null && <ActionFeedback action={timeTask} />}
           {!editing && week?.updatedBy && <p className="muted small">最後更新：{week.updatedBy}</p>}
         </Card>
       )}
