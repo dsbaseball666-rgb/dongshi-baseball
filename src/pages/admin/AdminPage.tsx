@@ -1,4 +1,5 @@
 import { Link, useSearchParams } from 'react-router-dom';
+import { isEnabled } from '../../config';
 import { useStore } from '../../store/DemoStore';
 import { Card, PageHeader } from '../../components/UI';
 import PlayersAdmin from './PlayersAdmin';
@@ -36,20 +37,22 @@ function FitnessAdmin() {
   );
 }
 
-const TABS = [
+const ALL_TABS: { id: string; label: string; el: JSX.Element; feature?: string }[] = [
   { id: 'players', label: '👥 帳號與角色', el: <PlayersAdmin /> },
   { id: 'tasks', label: '📋 任務與獎勵', el: <TasksAdmin /> },
   { id: 'notes', label: '📒 球員筆記', el: <NotesAdmin /> },
-  { id: 'goals', label: '🎯 目標與進度', el: <GoalsAdmin /> },
+  { id: 'goals', label: '🎯 目標與進度', el: <GoalsAdmin />, feature: '/goals' },
   { id: 'fitness', label: '💪 體能檢測', el: <FitnessAdmin /> },
   { id: 'monsters', label: '🐾 怪獸與圖鑑', el: <MonstersAdmin /> },
   { id: 'rules', label: '📜 球隊規章', el: <RulesAdmin /> },
   { id: 'knowledge', label: '⛑️ 防護知識', el: <KnowledgeAdmin /> },
-  { id: 'announcements', label: '📣 公告', el: <AnnouncementsAdmin /> },
+  { id: 'announcements', label: '📣 公告', el: <AnnouncementsAdmin />, feature: '/announcements' },
   { id: 'logs', label: '🗂️ 操作紀錄', el: <LogsAdmin /> },
   { id: 'export', label: '📤 匯出紀錄', el: <ExportAdmin /> },
   { id: 'sync', label: '🔌 同步錯誤', el: <SyncAdmin /> },
 ];
+// 停用的功能（目標進度、公告）不顯示分頁
+const TABS = ALL_TABS.filter((t) => !t.feature || isEnabled(t.feature));
 
 export default function AdminPage() {
   const [params, setParams] = useSearchParams();

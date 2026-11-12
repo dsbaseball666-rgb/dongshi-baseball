@@ -9,6 +9,7 @@ import { canEvolve, expToNext } from '../lib/monster';
 import { formatDate, formatDateTime, todayStr } from '../lib/date';
 import { exploresLeft } from '../store/actions';
 import { ROLE_LABELS } from '../lib/permissions';
+import { isEnabled } from '../config';
 
 function AnnouncementPreview() {
   const { db, user } = useStore();
@@ -126,7 +127,7 @@ function PlayerHome() {
             <EmptyState icon="✏️" title="今天還沒寫筆記" hint="寫完筆記可以完成任務、獲得經驗值。" action={<Link to="/notes" className="btn btn-primary btn-sm">開始寫筆記</Link>} />
           )}
         </Card>
-        <AnnouncementPreview />
+        {isEnabled('/announcements') && <AnnouncementPreview />}
       </div>
       <TaskBoard game={game} />
       <QuickLinks />
@@ -178,7 +179,7 @@ function CoachHome() {
         </Link>
       </div>
       <div className="grid-2">
-        <AnnouncementPreview />
+        {isEnabled('/announcements') && <AnnouncementPreview />}
         <Card title="最近操作紀錄" icon="🗂️" actions={<Link to="/admin?tab=logs" className="btn btn-sm btn-ghost">全部 →</Link>}>
           {db.auditLogs.length === 0 ? (
             <EmptyState title="尚無操作紀錄" />
@@ -215,7 +216,7 @@ function ParentHome() {
           <p className="muted small">家長可閱讀球隊規章、防護知識與教練開放給家長的公告；無法修改體能資料、遊戲獎勵或管理設定。</p>
         </div>
       </section>
-      <AnnouncementPreview />
+      {isEnabled('/announcements') && <AnnouncementPreview />}
       <QuickLinks />
     </>
   );

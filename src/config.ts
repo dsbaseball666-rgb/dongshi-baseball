@@ -17,5 +17,13 @@ export const isCloudConfigured = config.apiUrl !== '';
 /** 已經串接雲端的頁面；其他頁面在雲端模式中會顯示「後續階段串接」 */
 export const CLOUD_READY_PATHS = ['/', '/team', '/hub', '/notes', '/goals', '/fitness', '/exams', '/training', '/explore', '/battle', '/shop', '/dex', '/rules', '/knowledge', '/announcements', '/account', '/admin'];
 
+/**
+ * 停用的功能（2026-11 教練決定：筆記本之後只作紀錄使用）：目標進度、球隊公告、親師平台。
+ * 選單、首頁、教練後台都不顯示，網址也會導回首頁；原本的資料仍保留在試算表。
+ * 想重新啟用，把路徑從這裡拿掉即可。
+ */
+export const DISABLED_PATHS = ['/goals', '/announcements', '/hub'];
+export const isEnabled = (path: string) => !DISABLED_PATHS.includes(path);
+
 /** 只有雲端模式提供的頁面（示範模式不顯示）：球隊管理、親師平台、段考成績、對戰、道具商店 */
 export const CLOUD_ONLY_PATHS = ['/team', '/hub', '/exams', '/battle', '/shop'];

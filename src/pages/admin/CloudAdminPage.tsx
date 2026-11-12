@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isEnabled } from '../../config';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { AuditLog, Invite, Player, Role, User } from '../../types';
 import { useStore, useTask } from '../../store/DemoStore';
@@ -836,19 +837,21 @@ function SyncTab() {
   );
 }
 
-const TABS = [
+const ALL_TABS: { id: string; label: string; el: JSX.Element; feature?: string }[] = [
   { id: 'accounts', label: '👥 球員與帳號', el: <AccountsTab /> },
   { id: 'invites', label: '✉️ 邀請碼', el: <InvitesTab /> },
   { id: 'tasks', label: '📋 任務與獎勵', el: <TasksAdmin /> },
   { id: 'monsters', label: '🐾 怪獸與圖鑑', el: <MonstersAdmin /> },
-  { id: 'goals', label: '🎯 目標與進度', el: <GoalsAdmin /> },
+  { id: 'goals', label: '🎯 目標與進度', el: <GoalsAdmin />, feature: '/goals' },
   { id: 'rules', label: '📜 球隊規章', el: <RulesAdmin /> },
   { id: 'knowledge', label: '⛑️ 防護知識', el: <KnowledgeAdmin /> },
-  { id: 'announcements', label: '📣 公告', el: <AnnouncementsAdmin /> },
+  { id: 'announcements', label: '📣 公告', el: <AnnouncementsAdmin />, feature: '/announcements' },
   { id: 'import', label: '📥 匯入舊資料', el: <LegacyImportTab /> },
   { id: 'logs', label: '🗂️ 操作紀錄', el: <AuditTab /> },
   { id: 'sync', label: '🔌 同步錯誤', el: <SyncTab /> },
 ];
+// 停用的功能（目標進度、公告）不顯示分頁
+const TABS = ALL_TABS.filter((t) => !t.feature || isEnabled(t.feature));
 
 export default function CloudAdminPage() {
   const [params, setParams] = useSearchParams();

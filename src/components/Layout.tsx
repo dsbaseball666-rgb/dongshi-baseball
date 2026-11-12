@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import type { Role } from '../types';
 import { useStore } from '../store/DemoStore';
 import { ROLE_LABELS } from '../lib/permissions';
-import { CLOUD_ONLY_PATHS, CLOUD_READY_PATHS } from '../config';
+import { CLOUD_ONLY_PATHS, CLOUD_READY_PATHS, isEnabled } from '../config';
 import { Alert, LoadingState } from './UI';
 
 export const NAV_ITEMS: { to: string; label: string; icon: string; roles: Role[] }[] = [
@@ -32,7 +32,7 @@ export function Layout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
   if (!user) return null;
-  const items = NAV_ITEMS.filter((i) => i.roles.includes(user.role) && (mode === 'cloud' ? CLOUD_READY_PATHS.includes(i.to) : !CLOUD_ONLY_PATHS.includes(i.to)));
+  const items = NAV_ITEMS.filter((i) => i.roles.includes(user.role) && isEnabled(i.to) && (mode === 'cloud' ? CLOUD_READY_PATHS.includes(i.to) : !CLOUD_ONLY_PATHS.includes(i.to)));
 
   return (
     <div className="app-shell">

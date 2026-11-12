@@ -4,6 +4,7 @@ import type { Role } from './types';
 import { useStore } from './store/DemoStore';
 import { Layout } from './components/Layout';
 import { Card, EmptyState, LoadingState, NoAccess, PageHeader } from './components/UI';
+import { isEnabled } from './config';
 
 // 各頁面在第一次打開時才下載（手機第一次開網站時要下載的檔案比較小、比較快）
 const CloudHomePage = lazy(() => import('./pages/CloudHomePage'));
@@ -98,10 +99,10 @@ export default function App() {
         <Route path="/register" element={user ? <Navigate to="/" replace /> : <RegisterPage />} />
         <Route element={user ? <Layout /> : <Navigate to="/login" replace />}>
           <Route index element={<Home />} />
-          <Route path="hub" element={<Allow cloud cloudOnly roles={GROWN_UPS}><HubPage /></Allow>} />
+          <Route path="hub" element={isEnabled('/hub') ? <Allow cloud cloudOnly roles={GROWN_UPS}><HubPage /></Allow> : <Navigate to="/" replace />} />
           <Route path="team" element={<Allow cloud cloudOnly roles={ALL}><TeamPage /></Allow>} />
           <Route path="notes" element={<Allow cloud roles={['coach', 'player']}><NotesPage /></Allow>} />
-          <Route path="goals" element={<Allow cloud roles={['coach', 'player']}><GoalsPage /></Allow>} />
+          <Route path="goals" element={isEnabled('/goals') ? <Allow cloud roles={['coach', 'player']}><GoalsPage /></Allow> : <Navigate to="/" replace />} />
           <Route path="fitness" element={<Allow cloud roles={['coach', 'player']}><FitnessPage /></Allow>} />
           <Route path="exams" element={<Allow cloud cloudOnly roles={ALL}><ExamsPage /></Allow>} />
           <Route path="training" element={<Allow cloud roles={['player']}><TrainingPage /></Allow>} />
@@ -112,7 +113,7 @@ export default function App() {
           <Route path="rules" element={<Allow cloud roles={ALL}><RulesPage /></Allow>} />
           <Route path="knowledge" element={<Allow cloud roles={ALL}><KnowledgePage /></Allow>} />
           <Route path="knowledge/:id" element={<Allow cloud roles={ALL}><KnowledgeArticlePage /></Allow>} />
-          <Route path="announcements" element={<Allow cloud roles={ALL}><AnnouncementsPage /></Allow>} />
+          <Route path="announcements" element={isEnabled('/announcements') ? <Allow cloud roles={ALL}><AnnouncementsPage /></Allow> : <Navigate to="/" replace />} />
           <Route path="account" element={<Allow cloud roles={ALL}><AccountPage /></Allow>} />
           <Route path="admin" element={<Allow cloud roles={['coach']}><Admin /></Allow>} />
           <Route path="*" element={<NoAccess text="找不到這個頁面。" />} />
