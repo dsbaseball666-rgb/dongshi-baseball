@@ -7,8 +7,8 @@ import { isCloudConfigured } from '../config';
 import { ActionFeedback, Alert, Field } from '../components/UI';
 
 const ROLE_DESC: Record<Role, string> = {
-  coach: '管理球員、任務、規章、知識庫、公告，並查看筆記與體能資料。',
-  player: '寫每日筆記、設定目標、查看自己的體能紀錄、執行任務並培養怪獸。',
+  coach: '管理球員、規章與知識庫，並查看筆記、體能與段考資料。',
+  player: '寫每日筆記，查看自己的體能紀錄與段考成績。',
   parent: '閱讀球隊規章、防護知識與開放給家長的公告。',
   teacher: '在親師平台與家長、教練溝通，記錄學生在校表現。',
   office: '查看全體學生狀況，統一發布訊息與行程。',
@@ -66,7 +66,7 @@ export default function LoginPage() {
         {isCloudConfigured && <CloudLogin />}
         <details className="demo-login" open={!isCloudConfigured}>
           <summary>🧪 示範模式（不需帳號，資料只存在這台裝置）</summary>
-          <Alert kind="info">示範模式使用虛構的示範資料，可以體驗所有功能，包含尚未串接雲端的怪獸遊戲與目標進度。</Alert>
+          <Alert kind="info">示範模式使用虛構的示範資料，可以體驗筆記、體能、規章與知識庫等功能。</Alert>
           {roles.map((role) => {
             const users = db.users.filter((u) => u.role === role && u.active);
             return (

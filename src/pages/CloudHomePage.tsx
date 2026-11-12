@@ -248,7 +248,7 @@ export default function CloudHomePage() {
           {user.role === 'parent' && isEnabled('/hub') && <p className="muted small">家長可以在親師平台和老師、教練溝通，查看孩子的學習狀況、課業與行程，也可閱讀球隊規章、防護知識與開放給家長的公告；無法修改球員的體能資料、遊戲獎勵或管理設定。</p>}
         </div>
       </section>
-      {user.role === 'player' && user.playerId && <PlayerGame />}
+      {user.role === 'player' && user.playerId && isEnabled('/game') && <PlayerGame />}
       <div className="grid-2">
         <WeekPractice />
         {/* 行程是在親師平台新增的，親師平台停用時一起隱藏 */}

@@ -39,11 +39,11 @@ function FitnessAdmin() {
 
 const ALL_TABS: { id: string; label: string; el: JSX.Element; feature?: string }[] = [
   { id: 'players', label: '👥 帳號與角色', el: <PlayersAdmin /> },
-  { id: 'tasks', label: '📋 任務與獎勵', el: <TasksAdmin /> },
+  { id: 'tasks', label: '📋 任務與獎勵', el: <TasksAdmin />, feature: '/game' },
   { id: 'notes', label: '📒 球員筆記', el: <NotesAdmin /> },
   { id: 'goals', label: '🎯 目標與進度', el: <GoalsAdmin />, feature: '/goals' },
   { id: 'fitness', label: '💪 體能檢測', el: <FitnessAdmin /> },
-  { id: 'monsters', label: '🐾 怪獸與圖鑑', el: <MonstersAdmin /> },
+  { id: 'monsters', label: '🐾 怪獸與圖鑑', el: <MonstersAdmin />, feature: '/game' },
   { id: 'rules', label: '📜 球隊規章', el: <RulesAdmin /> },
   { id: 'knowledge', label: '⛑️ 防護知識', el: <KnowledgeAdmin /> },
   { id: 'announcements', label: '📣 公告', el: <AnnouncementsAdmin />, feature: '/announcements' },
@@ -51,7 +51,7 @@ const ALL_TABS: { id: string; label: string; el: JSX.Element; feature?: string }
   { id: 'export', label: '📤 匯出紀錄', el: <ExportAdmin /> },
   { id: 'sync', label: '🔌 同步錯誤', el: <SyncAdmin /> },
 ];
-// 停用的功能（目標進度、公告）不顯示分頁
+// 停用的功能（目標進度、公告、怪獸遊戲）不顯示分頁
 const TABS = ALL_TABS.filter((t) => !t.feature || isEnabled(t.feature));
 
 export default function AdminPage() {

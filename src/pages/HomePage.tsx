@@ -76,7 +76,7 @@ function PlayerHome() {
           <p>
             背號 {player?.number ?? '—'}・{player?.position ?? '—'}・{player?.grade ?? '—'} <DemoTag />
           </p>
-          <div className="stat-row">
+          {isEnabled('/game') && <div className="stat-row">
             <div className="stat">
               <span>🪙 點數</span>
               <strong>{wallet?.points ?? 0}</strong>
@@ -89,9 +89,9 @@ function PlayerHome() {
               <span>🌿 今日探索</span>
               <strong>{exploresLeft(wallet, today)}</strong>
             </div>
-          </div>
+          </div>}
         </div>
-        <div className="hero-monster">
+        {isEnabled('/game') && <div className="hero-monster">
           {partner && mon ? (
             <Link to="/training" className="partner-card">
               <MonsterSprite monster={mon} size={120} className="bounce" />
@@ -110,7 +110,7 @@ function PlayerHome() {
               <span className="muted small">前往怪獸訓練中心</span>
             </Link>
           )}
-        </div>
+        </div>}
       </section>
 
       <div className="grid-2">
@@ -124,12 +124,12 @@ function PlayerHome() {
               </Link>
             </>
           ) : (
-            <EmptyState icon="✏️" title="今天還沒寫筆記" hint="寫完筆記可以完成任務、獲得經驗值。" action={<Link to="/notes" className="btn btn-primary btn-sm">開始寫筆記</Link>} />
+            <EmptyState icon="✏️" title="今天還沒寫筆記" hint={isEnabled('/game') ? '寫完筆記可以完成任務、獲得經驗值。' : undefined} action={<Link to="/notes" className="btn btn-primary btn-sm">開始寫筆記</Link>} />
           )}
         </Card>
         {isEnabled('/announcements') && <AnnouncementPreview />}
       </div>
-      <TaskBoard game={game} />
+      {isEnabled('/game') && <TaskBoard game={game} />}
       <QuickLinks />
     </>
   );

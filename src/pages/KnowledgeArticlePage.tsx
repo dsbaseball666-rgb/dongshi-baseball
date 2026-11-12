@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { isEnabled } from '../config';
 import { useParams } from 'react-router-dom';
 import type { KnowledgeArticle } from '../types';
 import { useStore, useTask } from '../store/DemoStore';
@@ -56,7 +57,7 @@ function Quiz({ article }: { article: KnowledgeArticle }) {
       ))}
       {graded &&
         (graded.passed ? (
-          <Alert kind="success">全部答對！{user?.role === 'player' && '已記錄，可以到任務板完成「防護知識測驗」任務。'}</Alert>
+          <Alert kind="success">全部答對！{user?.role === 'player' && isEnabled('/game') && '已記錄，可以到任務板完成「防護知識測驗」任務。'}</Alert>
         ) : (
           <Alert kind="warn">
             答對 {correct} / {article.quiz.length} 題，看看解說後再試一次。

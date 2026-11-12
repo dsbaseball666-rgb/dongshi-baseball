@@ -105,11 +105,11 @@ export default function App() {
           <Route path="goals" element={isEnabled('/goals') ? <Allow cloud roles={['coach', 'player']}><GoalsPage /></Allow> : <Navigate to="/" replace />} />
           <Route path="fitness" element={<Allow cloud roles={['coach', 'player']}><FitnessPage /></Allow>} />
           <Route path="exams" element={<Allow cloud cloudOnly roles={ALL}><ExamsPage /></Allow>} />
-          <Route path="training" element={<Allow cloud roles={['player']}><TrainingPage /></Allow>} />
-          <Route path="explore" element={<Allow cloud roles={['player']}><ExplorePage /></Allow>} />
-          <Route path="battle" element={<Allow cloud cloudOnly roles={['player']}><BattlePage /></Allow>} />
-          <Route path="shop" element={<Allow cloud cloudOnly roles={['player']}><ShopPage /></Allow>} />
-          <Route path="dex" element={<Allow cloud roles={['coach', 'player']}><DexPage /></Allow>} />
+          <Route path="training" element={isEnabled('/training') ? <Allow cloud roles={['player']}><TrainingPage /></Allow> : <Navigate to="/" replace />} />
+          <Route path="explore" element={isEnabled('/explore') ? <Allow cloud roles={['player']}><ExplorePage /></Allow> : <Navigate to="/" replace />} />
+          <Route path="battle" element={isEnabled('/battle') ? <Allow cloud cloudOnly roles={['player']}><BattlePage /></Allow> : <Navigate to="/" replace />} />
+          <Route path="shop" element={isEnabled('/shop') ? <Allow cloud cloudOnly roles={['player']}><ShopPage /></Allow> : <Navigate to="/" replace />} />
+          <Route path="dex" element={isEnabled('/dex') ? <Allow cloud roles={['coach', 'player']}><DexPage /></Allow> : <Navigate to="/" replace />} />
           <Route path="rules" element={<Allow cloud roles={ALL}><RulesPage /></Allow>} />
           <Route path="knowledge" element={<Allow cloud roles={ALL}><KnowledgePage /></Allow>} />
           <Route path="knowledge/:id" element={<Allow cloud roles={ALL}><KnowledgeArticlePage /></Allow>} />
