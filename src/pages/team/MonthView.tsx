@@ -48,7 +48,15 @@ function dayItems(date: string, src: { weeks: Record<string, TrainingWeek | null
   // 週日：提醒隨時可能有比賽（先把時間空下來）
   const [y, m, d] = date.split('-').map(Number);
   if (new Date(y, m - 1, d).getDay() === 0) items.push({ icon: '⚠️', text: '隨時有比賽', tone: 'warn' });
-  src.tournaments.filter((t) => t.startDate <= date && date <= (t.endDate || t.startDate)).forEach((t) => items.push({ icon: '🏆', text: t.name, tone: 'game' }));
+  // 賽事：有排比賽場次的，只在有比賽的那幾天顯示；聯賽一定只看場次（期間很長，不整段標）；
+  // 還沒排場次的盃賽等，才用開始～結束日期顯示
+  src.tournaments
+    .filter((t) => {
+      const games = src.games.filter((g) => g.tournamentId === t.id);
+      if (games.length > 0 || t.kind === '聯賽') return games.some((g) => g.date === date);
+      return t.startDate <= date && date <= (t.endDate || t.startDate);
+    })
+    .forEach((t) => items.push({ icon: '🏆', text: t.name, tone: 'game' }));
   src.games.filter((g) => g.date === date).forEach((g) => items.push({ icon: '⚾', text: `${g.time ? g.time + ' ' : ''}對 ${g.opponent}`, tone: 'game' }));
   src.events
     .filter((e) => e.date === date)
