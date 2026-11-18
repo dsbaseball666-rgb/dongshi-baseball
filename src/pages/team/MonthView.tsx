@@ -10,7 +10,7 @@ import { LineImageButton } from '../../components/LineImage';
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
 
-type Tone = 'train' | 'off' | 'game' | 'event' | 'warn';
+type Tone = 'train' | 'off' | 'game' | 'event';
 interface DayItem {
   icon: string;
   text: string;
@@ -18,36 +18,21 @@ interface DayItem {
   /** 行程才有：可以刪除 */
   eventId?: string;
 }
-const TONE_COLOR: Record<Tone, string> = { train: '#1b5e20', off: '#5a5f78', game: '#8a5300', event: '#1f5fb5', warn: '#b71c1c' };
+const TONE_COLOR: Record<Tone, string> = { train: '#1b5e20', off: '#5a5f78', game: '#8a5300', event: '#1f5fb5' };
 
-/** 一天要顯示的全部東西：訓練課表（時間、休兵、各組主題）、一週練球、盃賽與比賽、行程 */
+/** 一天要顯示的全部東西：練球／休兵（只寫「練球」，不列時間和訓練內容）、賽事與比賽、行程 */
 function dayItems(date: string, src: { weeks: Record<string, TrainingWeek | null>; practice: PracticeDay[]; tournaments: Tournament[]; games: Game[]; events: TeamEvent[] }): DayItem[] {
   const items: DayItem[] = [];
   const tw = src.weeks[mondayOf(date)];
   const day = tw?.days.find((d) => d.date === date);
   if (day) {
     if (day.off) items.push({ icon: '😴', text: '休兵', tone: 'off' });
-    else {
-      items.push({ icon: '⚾', text: `練球 ${day.startTime}${day.endTime ? '–' + day.endTime : ''}`, tone: 'train' });
-      // 各組的訓練主題（同一個主題只列一次）
-      const titles: string[] = [];
-      tw!.cells
-        .filter((c) => c.date === date && c.title.trim())
-        .forEach((c) => {
-          const g = tw!.groups.find((x) => x.id === c.groupId);
-          const t = tw!.groups.length > 1 && g ? `${g.name}：${c.title}` : c.title;
-          if (!titles.includes(t)) titles.push(t);
-        });
-      titles.forEach((t) => items.push({ icon: '·', text: t, tone: 'train' }));
-    }
+    else items.push({ icon: '⚾', text: '練球', tone: 'train' });
   } else {
     // 這週還沒排訓練課表時，看「一週練球」
     const p = src.practice.find((x) => x.date === date);
-    if (p) items.push({ icon: PRACTICE_ICONS[p.type] ?? '📌', text: `${p.type}${p.startTime ? ' ' + p.startTime + (p.endTime ? '–' + p.endTime : '') : ''}`, tone: p.type === '休息' ? 'off' : 'train' });
+    if (p) items.push({ icon: PRACTICE_ICONS[p.type] ?? '📌', text: p.type, tone: p.type === '休息' ? 'off' : 'train' });
   }
-  // 週日：提醒隨時可能有比賽（先把時間空下來）
-  const [y, m, d] = date.split('-').map(Number);
-  if (new Date(y, m - 1, d).getDay() === 0) items.push({ icon: '⚠️', text: '隨時有比賽', tone: 'warn' });
   // 賽事：有排比賽場次的，只在有比賽的那幾天顯示；聯賽一定只看場次（期間很長，不整段標）；
   // 還沒排場次的盃賽等，才用開始～結束日期顯示
   src.tournaments
@@ -169,7 +154,7 @@ export function MonthView({ coach }: { coach: boolean }) {
           day: Number(date.slice(8)),
           inMonth: inMonth(date),
           muted: list.some((x) => x.tone === 'off'),
-          lines: list.map((x) => ({ text: x.icon === '·' ? `・${x.text}` : `${x.icon} ${x.text}`, color: TONE_COLOR[x.tone], bold: x.tone === 'game' || x.tone === 'warn' })),
+          lines: list.map((x) => ({ text: x.icon === '·' ? `・${x.text}` : `${x.icon} ${x.text}`, color: TONE_COLOR[x.tone], bold: x.tone === 'game' })),
         };
       }),
     );

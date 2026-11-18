@@ -815,7 +815,6 @@ td.strong { font-weight: 700; }
 .month-item.tone-off { color: var(--ink-soft); }
 .month-item.tone-game { color: #8a5300; font-weight: 700; }
 .month-item.tone-event { color: #1f5fb5; }
-.month-item.tone-warn { color: #b71c1c; font-weight: 700; }
 .month-detail .month-item { white-space: normal; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; }
 .month-event-form { margin-top: 10px; padding: 10px; background: #f7f8fb; border-radius: var(--radius); }
 .month-agenda { display: none; flex-direction: column; gap: 4px; }
