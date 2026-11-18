@@ -3,7 +3,7 @@ import { useStore } from '../../store/DemoStore';
 import { PageHeader } from '../../components/UI';
 import { useCloudQuery } from '../../sources/hooks';
 import { PracticeTab } from './PracticeTab';
-import { PlanTab } from './PlanTab';
+import { PlanArea } from './PlanArea';
 import { AttendanceTab } from './AttendanceTab';
 import { ProfilesTab } from './ProfilesTab';
 import { BudgetTab } from './BudgetTab';
@@ -51,7 +51,7 @@ export default function TeamPage() {
         ))}
       </div>
       {tab === 'practice' && <PracticeTab coach={coach} />}
-      {tab === 'plan' && <PlanTab coach={coach} myIds={user?.role === 'player' && user.playerId ? [user.playerId] : user?.childPlayerIds ?? []} />}
+      {tab === 'plan' && <PlanArea coach={coach} myIds={user?.role === 'player' && user.playerId ? [user.playerId] : user?.childPlayerIds ?? []} />}
       {tab === 'attendance' && coach && <AttendanceTab />}
       {tab === 'profiles' && coach && <ProfilesTab />}
       {tab === 'budget' && coach && <BudgetTab />}

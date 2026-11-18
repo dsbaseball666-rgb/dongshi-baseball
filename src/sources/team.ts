@@ -1,8 +1,9 @@
 import { useCallback, useMemo } from 'react';
-import type { AttendanceRecord, AttendanceStatus, BudgetItem, Game, Player, PlayerProfile, PracticeDay, PracticeType, Tournament, TrainingWeek, Transaction } from '../types';
+import type { AttendanceRecord, AttendanceStatus, BudgetItem, Game, Player, PlayerProfile, PracticeDay, PracticeType, TeamEvent, Tournament, TrainingWeek, Transaction } from '../types';
+import type { EventInput } from './hub';
 import { useStore } from '../store/DemoStore';
 import { useCloudQuery } from './hooks';
-import { addDays } from '../lib/date';
+import { addDays, todayStr } from '../lib/date';
 
 // 球隊管理：練球通知、出缺席、通訊錄、預算、賽事（只在雲端模式提供；權限由 Apps Script 檢查）
 
@@ -291,4 +292,45 @@ export function usePhotos(enabled = true) {
   const listFolder = useCallback((folderId: string) => api<{ files: { id: string; name: string }[] }>('listPhotoFolder', { folderId }, '讀取資料夾裡的照片').then((r) => r.files), [api]);
   const getFile = useCallback((folderId: string, fileId: string) => api<{ image: string }>('getPhotoFile', { folderId, fileId }, '讀取照片').then((r) => r.image), [api]);
   return { photos: q.state.data, loading: q.state.loading, error: q.state.error, savePhoto, deletePhoto, listSources, listFolder, getFile };
+}
+
+/* ───────── 每月行程（月曆） ───────── */
+
+/** 這個月（YYYY-MM）的最後一天 */
+export function lastDayOfMonth(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return todayStr(new Date(y, m, 0));
+}
+
+/** 月曆要顯示的每一週的星期一（從包含 1 號的那一週，到包含最後一天的那一週） */
+export function monthWeeks(month: string): string[] {
+  const end = lastDayOfMonth(month);
+  const weeks: string[] = [];
+  for (let w = mondayOf(month + '-01'); w <= end; w = addDays(w, 7)) weeks.push(w);
+  return weeks;
+}
+
+/** 月曆用：每一週的訓練課表（一次讀完整個月） */
+export function useMonthTraining(month: string) {
+  const { mode, api } = useStore();
+  const q = useCloudQuery<{ weeks: Record<string, TrainingWeek | null>; names: Record<string, string> }>(
+    mode === 'cloud',
+    `month-training-${month}`,
+    async () => {
+      const res = await Promise.all(monthWeeks(month).map((w) => api<TrainingWeekData>('getTrainingWeek', { weekStart: w }, '讀取訓練課表').then((r) => [w, r] as const)));
+      return { weeks: Object.fromEntries(res.map(([w, r]) => [w, r.week])), names: Object.assign({}, ...res.map(([, r]) => r.names)) };
+    },
+    { weeks: {}, names: {} },
+  );
+  return { ...q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload };
+}
+
+/** 一段期間的行程（每月行程的「新增行程」也存在這裡） */
+export function useEventsRange(from: string, to: string) {
+  const { mode, api } = useStore();
+  const q = useCloudQuery<TeamEvent[]>(mode === 'cloud', `events-${from}-${to}`, () => api<{ events: TeamEvent[] }>('listEvents', { from, to }, '讀取行程').then((r) => r.events), []);
+  const after = useMemo(() => thenReload(q.reload), [q.reload]);
+  const saveEvent = useCallback((input: EventInput) => after(api('saveEvent', input, '儲存行程')), [api, after]);
+  const deleteEvent = useCallback((id: string) => after(api('deleteEvent', { id }, '刪除行程')), [api, after]);
+  return { events: q.state.data, loading: q.state.loading, error: q.state.error, reload: q.reload, saveEvent, deleteEvent };
 }

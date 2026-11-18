@@ -531,3 +531,103 @@ export function renderWeekGridImage(spec: WeekGridSpec): HTMLCanvasElement {
   }
   return canvas;
 }
+
+export interface CalendarCell {
+  date: string;
+  day: number;
+  inMonth: boolean;
+  /** 休兵日、假日等，格子用灰色 */
+  muted?: boolean;
+  lines: { text: string; color?: string; bold?: boolean }[];
+}
+
+/** 月曆圖片：一週一排（星期一～日），每格列出那天的行程，太長的字自動縮成「…」 */
+export function renderCalendar(spec: { title: string; subtitle?: string; summary?: string; weeks: CalendarCell[][]; footer?: string }): HTMLCanvasElement {
+  const CELL_W = 176;
+  const LINE = 25;
+  const W = CELL_W * 7 + PAD * 2;
+  const headH = 104 + (spec.subtitle ? 34 : 0);
+  const summaryH = spec.summary ? 52 : 12;
+  const dowH = 40;
+  const rowH = spec.weeks.map((w) => Math.max(100, 38 + Math.max(0, ...w.map((c) => c.lines.length)) * LINE + 8));
+  const footH = spec.footer ? 52 : 24;
+  const top = headH + summaryH + PAD - 12;
+  const H = top + dowH + rowH.reduce((s, h) => s + h, 0) + footH;
+  const canvas = document.createElement('canvas');
+  canvas.width = W * SCALE;
+  canvas.height = H * SCALE;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(SCALE, SCALE);
+  ctx.textBaseline = 'top';
+  const font = (size: number, bold = false) => `${bold ? 'bold ' : ''}${size}px ${FONT}`;
+  const fit = (t: string, w: number) => {
+    if (ctx.measureText(t).width <= w) return t;
+    let s = t;
+    while (s.length > 1 && ctx.measureText(s + '…').width > w) s = s.slice(0, -1);
+    return s + '…';
+  };
+
+  ctx.fillStyle = '#fffdf5';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#23263a';
+  ctx.fillRect(0, 0, W, headH);
+  ctx.fillStyle = '#ffcc33';
+  ctx.fillRect(0, headH - 8, W, 8);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = font(32, true);
+  ctx.fillText(spec.title, PAD, 30);
+  if (spec.subtitle) {
+    ctx.font = font(22);
+    ctx.fillStyle = '#ffe9a6';
+    ctx.fillText(spec.subtitle, PAD, 78);
+  }
+  if (spec.summary) {
+    ctx.font = font(21, true);
+    ctx.fillStyle = '#23263a';
+    ctx.fillText(spec.summary, PAD, headH + 18);
+  }
+
+  // 星期列
+  let y = top;
+  ['一', '二', '三', '四', '五', '六', '日'].forEach((d, i) => {
+    const x = PAD + i * CELL_W;
+    ctx.fillStyle = i >= 5 ? '#fde2e1' : '#e8ebf2';
+    ctx.fillRect(x, y, CELL_W, dowH);
+    ctx.fillStyle = i >= 5 ? '#b71c1c' : '#23263a';
+    ctx.font = font(20, true);
+    ctx.fillText('星期' + d, x + (CELL_W - ctx.measureText('星期' + d).width) / 2, y + 10);
+  });
+  y += dowH;
+
+  spec.weeks.forEach((week, wi) => {
+    const h = rowH[wi];
+    week.forEach((c, i) => {
+      const x = PAD + i * CELL_W;
+      ctx.fillStyle = !c.inMonth ? '#f3f4f7' : c.muted ? '#eef0f5' : '#ffffff';
+      ctx.fillRect(x, y, CELL_W, h);
+      ctx.strokeStyle = '#c3c8d6';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, CELL_W, h);
+      ctx.font = font(22, true);
+      ctx.fillStyle = !c.inMonth ? '#b4b9c8' : i >= 5 ? '#b71c1c' : '#23263a';
+      ctx.fillText(String(c.day), x + 8, y + 6);
+      if (!c.inMonth) return;
+      c.lines.forEach((l, k) => {
+        ctx.font = font(17, l.bold);
+        ctx.fillStyle = l.color ?? '#23263a';
+        ctx.fillText(fit(l.text, CELL_W - 14), x + 7, y + 38 + k * LINE);
+      });
+    });
+    y += h;
+  });
+  ctx.strokeStyle = '#23263a';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(PAD, top, CELL_W * 7, y - top);
+
+  if (spec.footer) {
+    ctx.font = font(17);
+    ctx.fillStyle = '#5a5f78';
+    ctx.fillText(spec.footer, PAD, y + 18);
+  }
+  return canvas;
+}
