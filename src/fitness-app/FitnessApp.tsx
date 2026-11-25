@@ -10,10 +10,11 @@ import { BatchTab } from './BatchTab';
 import { PersonalTab } from './PersonalTab';
 import { ExportTab } from './ExportTab';
 import { GroupTab } from './GroupTab';
+import { PrintTab } from './PrintTab';
 
 // 體能檢測系統：獨立的網頁（fitness.html），和冒險筆記本共用同一個帳號與同一份資料（FitnessTests 工作表）
 
-type Tab = 'overview' | 'group' | 'batch' | 'personal' | 'export';
+type Tab = 'overview' | 'group' | 'batch' | 'personal' | 'print' | 'export';
 
 // short：手機下方分頁列用的短名稱
 const TABS: { id: Tab; icon: string; label: string; short: string; coachOnly: boolean }[] = [
@@ -21,6 +22,7 @@ const TABS: { id: Tab; icon: string; label: string; short: string; coachOnly: bo
   { id: 'group', icon: '⏱️', label: '團體檢測（碼表）', short: '團體檢測', coachOnly: true },
   { id: 'batch', icon: '✍️', label: '全隊輸入', short: '全隊輸入', coachOnly: true },
   { id: 'personal', icon: '👤', label: '個人紀錄', short: '個人', coachOnly: false },
+  { id: 'print', icon: '🖨️', label: '列印紙本', short: '列印', coachOnly: true },
   { id: 'export', icon: '📤', label: '匯出 Excel', short: '匯出', coachOnly: true },
 ];
 
@@ -200,6 +202,7 @@ function System() {
                   {tab === 'group' && coach && <GroupTab players={players} source={source} />}
                   {tab === 'batch' && coach && <BatchTab players={players} source={source} />}
                   {tab === 'personal' && <PersonalTab players={players} source={source} coach={coach} playerId={selected} setPlayerId={setPlayerId} />}
+                  {tab === 'print' && coach && <PrintTab players={players} source={source} />}
                   {tab === 'export' && coach && <ExportTab players={players} source={source} />}
                 </>
               )}

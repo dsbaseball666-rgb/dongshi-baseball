@@ -5,6 +5,7 @@ import { todayStr } from '../lib/date';
 import { FITNESS_ITEMS, getFitnessItem, parseFitnessInput } from '../lib/fitness';
 import { ActionFeedback, Alert, Card, EmptyState, Field } from '../components/UI';
 import { sortRecords } from './stats';
+import { sortGrades } from './printSheet';
 import { attemptsNote, average, MAX_ATTEMPTS, usesAttempts } from './attempts';
 import {
   addAttempt,
@@ -122,9 +123,7 @@ function Setup({ players, onStart, savedMsg }: { players: Player[]; onStart: (s:
   const [picked, setPicked] = useState<string[]>([]);
   const [grade, setGrade] = useState('');
   const active = players.filter((p) => p.active);
-  // 年級依七、八、九排列（中文數字直接排序會變成七、九、八）
-  const gradeRank = (g: string) => { const i = '一二三四五六七八九'.indexOf(g.charAt(0)); return i < 0 ? 99 : i; };
-  const grades = Array.from(new Set(active.map((p) => p.grade).filter(Boolean))).sort((a, b) => gradeRank(a) - gradeRank(b) || a.localeCompare(b));
+  const grades = sortGrades(active.map((p) => p.grade));
   const shown = active.filter((p) => !grade || p.grade === grade);
   const toggle = (id: string) => setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
   const def = getFitnessItem(item);

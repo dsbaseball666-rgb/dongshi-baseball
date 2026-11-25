@@ -56,7 +56,7 @@ src/
   store/DemoStore   第一階段的本機資料儲存
   components/       共用介面元件
   pages/            12 個主要頁面；pages/admin/ 為教練後台
-  fitness-app/      體能檢測系統（獨立網頁 fitness.html：全隊總覽／排行、團體檢測碼表、全隊輸入、個人報告、匯出）
+  fitness-app/      體能檢測系統（獨立網頁 fitness.html：全隊總覽／排行、團體檢測碼表、全隊輸入、個人報告、列印紙本記錄表、匯出）
 ```
 
 ## 重要說明
